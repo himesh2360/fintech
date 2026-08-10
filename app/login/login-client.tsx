@@ -53,7 +53,10 @@ export function LoginClient() {
     setDemoLoading(true)
     try {
       const res = await fetch("/api/demo/login", { method: "POST", credentials: "include" })
-      if (!res.ok) throw new Error("Demo login failed")
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data?.error || "Demo login failed")
+      }
       toast.success("Logged in as demo user")
       router.push(next)
       router.refresh()
