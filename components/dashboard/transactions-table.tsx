@@ -1,13 +1,14 @@
 "use client"
 
 import * as React from "react"
-import { Trash2Icon } from "lucide-react"
+import { DownloadIcon, Trash2Icon } from "lucide-react"
 import { toast } from "sonner"
 
 import type { TransactionDto } from "@/types/api"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { StatementUploadDialog } from "@/components/dashboard/statement-upload-dialog"
 
 function fmtDate(d: string | Date) {
   const date = typeof d === "string" ? new Date(d) : d
@@ -37,11 +38,29 @@ export function TransactionsTable({
     onChanged()
   }
 
+  function handleExportCsv() {
+    window.open("/api/transactions/export", "_blank")
+  }
+
   return (
     <Card className="rounded-2xl border-border bg-card p-4 shadow-premium sm:p-5">
-      <div className="mb-4">
-        <div className="text-sm font-semibold tracking-tight">Recent activity</div>
-        <div className="text-xs text-muted-foreground">Income and expenses synced to your budget intelligence</div>
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <div>
+          <div className="text-sm font-semibold tracking-tight">Recent activity</div>
+          <div className="text-xs text-muted-foreground">Income and expenses synced to your budget intelligence</div>
+        </div>
+        <div className="flex items-center gap-2">
+          <StatementUploadDialog onUploaded={onChanged} />
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleExportCsv}
+            className="rounded-xl flex items-center gap-1.5 text-xs"
+          >
+            <DownloadIcon className="size-3.5" />
+            <span>Export CSV</span>
+          </Button>
+        </div>
       </div>
 
       <div className="overflow-hidden rounded-2xl border border-border/60">
@@ -72,7 +91,7 @@ export function TransactionsTable({
                     <TableCell className="hidden md:table-cell">{t.merchant || "—"}</TableCell>
                     <TableCell className="text-right font-semibold">
                       <span className={isExpense ? "text-destructive" : "text-emerald-600 dark:text-emerald-400"}>
-                        {isExpense ? "-" : "+"}₹{Math.round(t.amount).toLocaleString('en-IN')}
+                        {isExpense ? "-" : "+"}₹{Math.round(t.amount).toLocaleString("en-IN")}
                       </span>
                     </TableCell>
                     <TableCell className="text-right">
@@ -97,4 +116,3 @@ export function TransactionsTable({
     </Card>
   )
 }
-

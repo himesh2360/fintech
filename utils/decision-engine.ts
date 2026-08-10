@@ -885,3 +885,220 @@ export function demoFinancialProfile(month: string): FinancialProfile {
     },
   }
 }
+
+export type StressScenario = {
+  id: string
+  name: string
+  description: string
+  passed: boolean
+  metric: string
+  impact: string
+}
+
+export type StressTestResult = {
+  score: number
+  label: "Fragile" | "Moderate" | "Resilient" | "Bulletproof"
+  scenarios: StressScenario[]
+  vulnerabilities: string[]
+}
+
+export function runFinancialStressTest(profile: FinancialProfile): StressTestResult {
+  const monthlyExp = Math.max(1, profile.monthlyExpenses)
+  const cash = profile.cashBalance
+  const efMonths = Number((cash / monthlyExp).toFixed(1))
+
+  const scenarios: StressScenario[] = []
+  const vulnerabilities: string[] = []
+
+  // 1. 3-Month Unemployment
+  const pass3m = efMonths >= 3
+  scenarios.push({
+    id: "job_loss_3m",
+    name: "3-Month Job Pause",
+    description: "Sustain living expenses for 90 days with zero income",
+    passed: pass3m,
+    metric: `${efMonths} / 3.0 Months`,
+    impact: pass3m
+      ? "Sufficient liquid cash buffer to absorb a 90-day income disruption."
+      : `Liquid cash falls short by ₹${Math.round((3 - efMonths) * monthlyExp).toLocaleString("en-IN")}.`,
+  })
+  if (!pass3m) vulnerabilities.push("Vulnerable to 90-day job loss or salary freeze.")
+
+  // 2. ₹50,000 Medical Shock
+  const passMed = cash >= 50000
+  scenarios.push({
+    id: "medical_shock_50k",
+    name: "₹50,000 Medical Shock",
+    description: "Absorb an immediate out-of-pocket emergency medical expense",
+    passed: passMed,
+    metric: passMed ? "Passed" : "Insufficient Cash",
+    impact: passMed
+      ? "Immediate cash reserves can cover a ₹50,000 surprise medical invoice."
+      : "Must rely on high-interest credit card debt to cover ₹50,000 medical emergency.",
+  })
+  if (!passMed) vulnerabilities.push("Unprotected against ₹50,000 surprise medical emergency.")
+
+  // 3. 20% Income Reduction / Salary Delay
+  const incomeCutSurplus = profile.monthlyIncome * 0.8 - monthlyExp
+  const passCut = incomeCutSurplus >= 0
+  scenarios.push({
+    id: "income_cut_20pct",
+    name: "20% Income Reduction",
+    description: "Maintain positive monthly cashflow if income drops by 20%",
+    passed: passCut,
+    metric: passCut ? `+₹${Math.round(incomeCutSurplus).toLocaleString("en-IN")}/mo` : `-₹${Math.round(Math.abs(incomeCutSurplus)).toLocaleString("en-IN")}/mo`,
+    impact: passCut
+      ? "Monthly spending stays below reduced income without drawing down savings."
+      : "Monthly cashflow turns negative if income drops 20%.",
+  })
+  if (!passCut) vulnerabilities.push("Monthly budget runs deficit under 20% income reduction.")
+
+  // 4. EMI / Rent Spike (+15%)
+  const expSpike = monthlyExp * 1.15
+  const passSpike = profile.monthlyIncome - expSpike >= 0
+  scenarios.push({
+    id: "emi_rent_spike_15pct",
+    name: "15% Housing/EMI Spike",
+    description: "Absorb 15% increase in monthly fixed living costs",
+    passed: passSpike,
+    metric: passSpike ? "Passed" : "Deficit Warning",
+    impact: passSpike
+      ? "Monthly income comfortably absorbs a 15% inflation/EMI hike."
+      : "Expenses exceed monthly income if fixed costs increase by 15%.",
+  })
+  if (!passSpike) vulnerabilities.push("High fixed cost ratio makes monthly budget vulnerable to inflation.")
+
+  const passedCount = scenarios.filter((s) => s.passed).length
+  const score = Math.round((passedCount / scenarios.length) * 100)
+  let label: StressTestResult["label"] = "Fragile"
+  if (score >= 100) label = "Bulletproof"
+  else if (score >= 75) label = "Resilient"
+  else if (score >= 50) label = "Moderate"
+
+  return { score, label, scenarios, vulnerabilities }
+}
+
+export type TradeoffFuture = {
+  key: "BUY_NOW" | "WAIT_3_MONTHS" | "INVEST_SURPLUS" | "CLEAR_DEBT"
+  title: string
+  description: string
+  liquidCashLeft: number
+  emergencyMonthsLeft: number
+  scoreDelta: number
+  opportunityCost: string
+  verdict: string
+}
+
+export type TradeoffAnalysis = {
+  itemTitle: string
+  amount: number
+  baselineScore: number
+  futures: TradeoffFuture[]
+  recommendedFutureKey: "BUY_NOW" | "WAIT_3_MONTHS" | "INVEST_SURPLUS" | "CLEAR_DEBT"
+  why: string
+}
+
+export function runTradeoffEngine(profile: FinancialProfile, input: { title: string; amount: number }): TradeoffAnalysis {
+  const amount = Math.max(1000, input.amount)
+  const baseline = buildHealthScorecard(profile).score
+  const monthlyExp = Math.max(1, profile.monthlyExpenses)
+
+  // 1. BUY NOW
+  const cashAfterBuy = Math.max(0, profile.cashBalance - amount)
+  const efAfterBuy = Number((cashAfterBuy / monthlyExp).toFixed(1))
+  const profileBuy = { ...profile, cashBalance: cashAfterBuy }
+  const scoreBuy = buildHealthScorecard(profileBuy).score
+  const buyDelta = scoreBuy - baseline
+
+  const buyFuture: TradeoffFuture = {
+    key: "BUY_NOW",
+    title: "Buy Immediately",
+    description: `Pay ₹${amount.toLocaleString("en-IN")} upfront from liquid cash today.`,
+    liquidCashLeft: cashAfterBuy,
+    emergencyMonthsLeft: efAfterBuy,
+    scoreDelta: buyDelta,
+    opportunityCost: `Reduces emergency runway from ${(profile.cashBalance / monthlyExp).toFixed(1)} ➔ ${efAfterBuy} months.`,
+    verdict: efAfterBuy < 3 ? "HIGH RISK: Depletes emergency buffer below safe 3-month floor." : "SAFE: Emergency fund remains intact.",
+  }
+
+  // 2. WAIT 3 MONTHS
+  const monthlySave = Math.ceil(amount / 3)
+  const waitFuture: TradeoffFuture = {
+    key: "WAIT_3_MONTHS",
+    title: "Save & Buy in 90 Days",
+    description: `Save ₹${monthlySave.toLocaleString("en-IN")}/month over 3 months without touching core cash.`,
+    liquidCashLeft: profile.cashBalance,
+    emergencyMonthsLeft: Number((profile.cashBalance / monthlyExp).toFixed(1)),
+    scoreDelta: +4,
+    opportunityCost: "Zero emergency fund disruption. Delays immediate gratification by 90 days.",
+    verdict: "RECOMMENDED: Preserves cash reserves while building savings discipline.",
+  }
+
+  // 3. INVEST SURPLUS
+  const cagr = (profile.equityIllustrativePct || 12) / 100
+  const futureInvestVal = Math.round(amount * Math.pow(1 + cagr, 3))
+  const investFuture: TradeoffFuture = {
+    key: "INVEST_SURPLUS",
+    title: "Invest Surplus Instead",
+    description: `Put ₹${amount.toLocaleString("en-IN")} into mutual funds/equity for 3 years at ${profile.equityIllustrativePct || 12}% CAGR.`,
+    liquidCashLeft: profile.cashBalance,
+    emergencyMonthsLeft: Number((profile.cashBalance / monthlyExp).toFixed(1)),
+    scoreDelta: +8,
+    opportunityCost: `Forfeiting item yields ~₹${futureInvestVal.toLocaleString("en-IN")} in total portfolio value in 36 months (+₹${(futureInvestVal - amount).toLocaleString("en-IN")} wealth gain).`,
+    verdict: "HIGH GROWTH: Maximizes long-term compounding.",
+  }
+
+  // 4. CLEAR DEBT
+  const debtRate = (profile.debtInterestPct || 9) / 100
+  const interestSaved = Math.round(amount * debtRate * 2)
+  const debtFuture: TradeoffFuture = {
+    key: "CLEAR_DEBT",
+    title: "Pay Down High-Interest Debt",
+    description: `Direct ₹${amount.toLocaleString("en-IN")} toward high-yield debt (~${profile.debtInterestPct || 9}% interest rate).`,
+    liquidCashLeft: profile.cashBalance,
+    emergencyMonthsLeft: Number((profile.cashBalance / monthlyExp).toFixed(1)),
+    scoreDelta: +12,
+    opportunityCost: `Saves ₹${interestSaved.toLocaleString("en-IN")} in non-deductible interest expense over 24 months.`,
+    verdict: "HIGHEST GUARANTEED RETURN: Immediately reduces interest leakage.",
+  }
+
+  let recommendedKey: TradeoffAnalysis["recommendedFutureKey"] = "WAIT_3_MONTHS"
+  let why = "Postponing the purchase by 90 days preserves your liquid cash buffer while building healthy savings discipline."
+
+  if (profile.highInterestDebt > 0 && amount <= profile.highInterestDebt) {
+    recommendedKey = "CLEAR_DEBT"
+    why = `Directing ₹${amount.toLocaleString("en-IN")} toward your debt yields a guaranteed ~${profile.debtInterestPct || 9}% return and saves ₹${interestSaved.toLocaleString("en-IN")} in interest.`
+  } else if (efAfterBuy >= 4) {
+    recommendedKey = "BUY_NOW"
+    why = `Your liquid cash reserve is healthy (${efAfterBuy} months coverage), allowing you to afford this purchase today without financial risk.`
+  }
+
+  return {
+    itemTitle: input.title || "Planned Purchase",
+    amount,
+    baselineScore: baseline,
+    futures: [buyFuture, waitFuture, investFuture, debtFuture],
+    recommendedFutureKey: recommendedKey,
+    why,
+  }
+}
+
+export function detectFutureShock(profile: FinancialProfile): { detected: boolean; message: string; projectedSavingsPct: number } {
+  const income = Math.max(1, profile.monthlyIncome)
+  const currentSavingsPct = Math.round(((income - profile.monthlyExpenses) / income) * 100)
+
+  if (currentSavingsPct < 15) {
+    return {
+      detected: true,
+      message: `At your current spending velocity, your monthly savings rate has dropped to ${currentSavingsPct}%. Without adjustment, your cash buffer could deplete within 4 months.`,
+      projectedSavingsPct: currentSavingsPct,
+    }
+  }
+
+  return {
+    detected: false,
+    message: `Monthly savings rate is healthy at ${currentSavingsPct}%.`,
+    projectedSavingsPct: currentSavingsPct,
+  }
+}
+

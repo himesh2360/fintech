@@ -4,6 +4,8 @@ import { z } from "zod"
 import { dbConnect } from "@/lib/db"
 import { getAuthPayload } from "@/lib/request-auth"
 import { Transaction } from "@/models/Transaction"
+import { User } from "@/models/User"
+import { isCreditCategory } from "@/utils/categories"
 
 export const runtime = "nodejs"
 
@@ -70,6 +72,12 @@ export async function POST(req: Request) {
     note: parsed.data.note,
     occurredAt: parsed.data.occurredAt ? new Date(parsed.data.occurredAt) : new Date(),
   })
+
+  // Synchronize user balance state
+  const balanceField = isCreditCategory(parsed.data.category) ? "creditBalance" : "cashBalance"
+  const balanceDelta = parsed.data.type === "income" ? parsed.data.amount : -parsed.data.amount
+
+  await User.findByIdAndUpdate(auth.sub, { $inc: { [balanceField]: balanceDelta } })
 
   return NextResponse.json({
     transaction: {

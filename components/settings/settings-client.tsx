@@ -1,18 +1,26 @@
 "use client"
 
 import * as React from "react"
-import { FingerprintIcon, LinkIcon, ShieldAlertIcon } from "lucide-react"
+import { FingerprintIcon, LinkIcon, ShieldAlertIcon, SlidersIcon } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 
 export function SettingsClient() {
   const [biometric, setBiometric] = React.useState(false)
   const [fraudSim, setFraudSim] = React.useState(true)
   const [linked, setLinked] = React.useState(false)
+
+  // Decision preferences state
+  const [savingsYieldPct, setSavingsYieldPct] = React.useState<number>(6.5)
+  const [debtInterestPct, setDebtInterestPct] = React.useState<number>(9.0)
+  const [emergencyMonthsTarget, setEmergencyMonthsTarget] = React.useState<number>(6)
+  const [savingPreferences, setSavingPreferences] = React.useState(false)
 
   React.useEffect(() => {
     try {
@@ -22,6 +30,18 @@ export function SettingsClient() {
     } catch {
       // ignore
     }
+
+    // Fetch user decision settings
+    fetch("/api/user/settings")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.settings) {
+          setSavingsYieldPct(data.settings.savingsYieldPct ?? 6.5)
+          setDebtInterestPct(data.settings.debtInterestPct ?? 9.0)
+          setEmergencyMonthsTarget(data.settings.emergencyMonthsTarget ?? 6)
+        }
+      })
+      .catch(() => {})
   }, [])
 
   React.useEffect(() => {
@@ -34,13 +54,112 @@ export function SettingsClient() {
     }
   }, [biometric, fraudSim, linked])
 
+  const handleSavePreferences = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setSavingPreferences(true)
+
+    try {
+      const res = await fetch("/api/user/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          savingsYieldPct,
+          debtInterestPct,
+          emergencyMonthsTarget,
+        }),
+      })
+
+      if (res.ok) {
+        toast.success("Decision engine preferences updated!")
+      } else {
+        toast.error("Failed to save settings.")
+      }
+    } catch {
+      toast.error("Error saving decision preferences.")
+    } finally {
+      setSavingPreferences(false)
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div>
         <div className="text-xs text-muted-foreground">FinSight</div>
         <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Security, integrations, and demo toggles.</p>
+        <p className="mt-1 text-sm text-muted-foreground">Security, integrations, and decision engine parameters.</p>
       </div>
+
+      <Card className="rounded-2xl border-border bg-card p-4 shadow-premium sm:p-5">
+        <div className="flex items-center gap-2 border-b border-border/60 pb-3">
+          <div className="flex size-9 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+            <SlidersIcon className="size-5" />
+          </div>
+          <div>
+            <div className="text-sm font-semibold tracking-tight">Decision Engine Parameters</div>
+            <div className="text-xs text-muted-foreground">Tune interest rates & risk thresholds</div>
+          </div>
+        </div>
+
+        <form onSubmit={handleSavePreferences} className="mt-4 space-y-4">
+          <div className="grid gap-4 sm:grid-cols-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="debtInterest" className="text-xs font-medium">
+                Debt Interest Rate (%)
+              </Label>
+              <Input
+                id="debtInterest"
+                type="number"
+                step="0.1"
+                min="0"
+                max="50"
+                value={debtInterestPct}
+                onChange={(e) => setDebtInterestPct(parseFloat(e.target.value) || 0)}
+                className="rounded-xl"
+              />
+              <p className="text-[11px] text-muted-foreground">Used for interest arbitrage & risk score</p>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="savingsYield" className="text-xs font-medium">
+                Savings Account Yield (%)
+              </Label>
+              <Input
+                id="savingsYield"
+                type="number"
+                step="0.1"
+                min="0"
+                max="30"
+                value={savingsYieldPct}
+                onChange={(e) => setSavingsYieldPct(parseFloat(e.target.value) || 0)}
+                className="rounded-xl"
+              />
+              <p className="text-[11px] text-muted-foreground">Expected baseline yield on cash</p>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="emergencyTarget" className="text-xs font-medium">
+                Emergency Target (Months)
+              </Label>
+              <Input
+                id="emergencyTarget"
+                type="number"
+                min="1"
+                max="24"
+                value={emergencyMonthsTarget}
+                onChange={(e) => setEmergencyMonthsTarget(parseInt(e.target.value) || 1)}
+                className="rounded-xl"
+              />
+              <p className="text-[11px] text-muted-foreground">Target months of expense buffer</p>
+            </div>
+          </div>
+
+          <div className="flex justify-end pt-2">
+            <Button type="submit" disabled={savingPreferences} className="rounded-xl">
+              {savingPreferences ? "Saving..." : "Save Preferences"}
+            </Button>
+          </div>
+        </form>
+      </Card>
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card className="rounded-2xl border-border bg-card p-4 shadow-premium sm:p-5">
@@ -147,4 +266,3 @@ export function SettingsClient() {
     </div>
   )
 }
-

@@ -9,7 +9,7 @@ import { toast } from "sonner"
 
 import { TransactionCategories } from "@/utils/categories"
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -30,7 +30,7 @@ export function TransactionDialog({ onCreated }: { onCreated: () => void }) {
 
   const form = useForm<FormValues>({
     resolver: zodResolver(Schema),
-    defaultValues: { type: "expense", amount: 0, category: "Food", merchant: "", note: "" },
+    defaultValues: { type: "expense", amount: 0, category: "Food & Dining", merchant: "", note: "" },
   })
 
   async function onSubmit(values: FormValues) {
@@ -47,7 +47,7 @@ export function TransactionDialog({ onCreated }: { onCreated: () => void }) {
     }
     toast.success("Transaction added")
     setOpen(false)
-    form.reset({ type: "expense", amount: 0, category: "Food", merchant: "", note: "" })
+    form.reset({ type: "expense", amount: 0, category: "Food & Dining", merchant: "", note: "" })
     onCreated()
   }
 
@@ -62,6 +62,7 @@ export function TransactionDialog({ onCreated }: { onCreated: () => void }) {
       <DialogContent className="rounded-3xl">
         <DialogHeader>
           <DialogTitle>Add a transaction</DialogTitle>
+          <DialogDescription className="sr-only">Add a new income or expense transaction to your ledger</DialogDescription>
         </DialogHeader>
 
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">

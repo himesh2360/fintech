@@ -32,17 +32,25 @@ export async function GET(req: Request) {
   const bundle = await getDecisionBundle(auth.sub, month)
   const p = bundle.profile
 
-  await dbConnect()
-  const [user, txns] = await Promise.all([
-    User.findById(auth.sub).select({ email: 1 }).lean(),
-    Transaction.find({
-      userId: auth.sub,
-      occurredAt: { $gte: new Date(Date.now() - 14 * 86400000) },
-    })
-      .sort({ occurredAt: -1 })
-      .limit(200)
-      .lean(),
-  ])
+  let user: any = null
+  let txns: any[] = []
+  try {
+    await dbConnect()
+    const [userRes, txnsRes] = await Promise.all([
+      User.findById(auth.sub).select({ email: 1 }).lean(),
+      Transaction.find({
+        userId: auth.sub,
+        occurredAt: { $gte: new Date(Date.now() - 14 * 86400000) },
+      })
+        .sort({ occurredAt: -1 })
+        .limit(200)
+        .lean(),
+    ])
+    user = userRes
+    txns = txnsRes || []
+  } catch (err) {
+    console.warn("DB connection warning in summary route, returning cached/fallback summary:", err)
+  }
   const demo = isDemoEmail(user?.email)
 
   // Build last-14-day series from real ledger only (no invented bars)

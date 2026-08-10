@@ -1,3 +1,4 @@
+import { Types } from "mongoose"
 import { dbConnect } from "@/lib/db"
 import { Budget } from "@/models/Budget"
 import { Goal } from "@/models/Goal"
@@ -29,7 +30,8 @@ function isDemoUser(email?: string | null) {
 
 /**
  * Build a FinancialProfile from the user's real MongoDB data.
- * Rich demo numbers are ONLY used for the seeded demo account.
+ * Uses high-performance MongoDB aggregation pipelines for spend metrics
+ * and hydrates custom user decision preferences.
  */
 export async function loadFinancialProfile(userId: string, month = monthKey()): Promise<FinancialProfile> {
   try {
@@ -41,27 +43,34 @@ export async function loadFinancialProfile(userId: string, month = monthKey()): 
 
     const demo = isDemoUser(user.email)
     const { start, end } = parseMonth(month)
-    const [budget, goals, txns] = await Promise.all([
+
+    const userObjId = new Types.ObjectId(userId)
+
+    const [budget, goals, totalsAggregation, categoryAggregation, txnDocs] = await Promise.all([
       Budget.findOne({ userId, month }).lean(),
       Goal.find({ userId }).limit(20).lean(),
-      Transaction.find({
-        userId,
-        occurredAt: { $gte: start, $lte: end },
-      })
-        .limit(500)
-        .lean(),
+      Transaction.aggregate<{ _id: string; total: number }>([
+        { $match: { userId: userObjId, occurredAt: { $gte: start, $lte: end } } },
+        { $group: { _id: "$type", total: { $sum: "$amount" } } },
+      ]),
+      Transaction.aggregate<{ _id: string; total: number }>([
+        { $match: { userId: userObjId, type: "expense", occurredAt: { $gte: start, $lte: end } } },
+        { $group: { _id: "$category", total: { $sum: "$amount" } } },
+      ]),
+      Transaction.find({ userId, occurredAt: { $gte: start, $lte: end } }).limit(500).lean(),
     ])
 
     let monthlyIncome = 0
     let monthlyExpenses = 0
-    const spendByCategory: Record<string, number> = {}
+    for (const item of totalsAggregation) {
+      if (item._id === "income") monthlyIncome = item.total
+      else if (item._id === "expense") monthlyExpenses = item.total
+    }
 
-    for (const t of txns) {
-      if (t.type === "income") monthlyIncome += t.amount
-      else {
-        monthlyExpenses += t.amount
-        const cat = t.category || "Other"
-        spendByCategory[cat] = (spendByCategory[cat] ?? 0) + t.amount
+    const spendByCategory: Record<string, number> = {}
+    for (const cat of categoryAggregation) {
+      if (cat._id) {
+        spendByCategory[cat._id] = cat.total
       }
     }
 
@@ -73,19 +82,27 @@ export async function loadFinancialProfile(userId: string, month = monthKey()): 
       status: g.status,
     }))
 
+    // Hydrate user settings or defaults
+    const savingsYieldPct = user.savingsYieldPct ?? 6.5
+    const debtInterestPct = user.debtInterestPct ?? 9.0
+    const emergencyMonthsTarget = user.emergencyMonthsTarget ?? 6
+
     // Demo account: if seed data is thin/missing, fall back to rich demo story
-    if (demo && txns.length < 3) {
+    if (demo && txnDocs.length < 3) {
       return {
         ...demoFinancialProfile(month),
         currency: user.currency || "INR",
         cashBalance: user.cashBalance ?? demoFinancialProfile(month).cashBalance,
         creditLimit: user.creditLimit ?? demoFinancialProfile(month).creditLimit,
         creditBalance: user.creditBalance ?? demoFinancialProfile(month).creditBalance,
+        savingsYieldPct,
+        debtInterestPct,
+        emergencyMonthsTarget,
         goals: mappedGoals.length > 0 ? mappedGoals : demoFinancialProfile(month).goals,
       }
     }
 
-    // Real signup users: only their actual data (zeros / empties until they add activity)
+    // Real signup users: actual data with user preferences
     if (!demo) {
       return starterFinancialProfile(month, {
         currency: user.currency || "INR",
@@ -97,29 +114,32 @@ export async function loadFinancialProfile(userId: string, month = monthKey()): 
         creditLimit: user.creditLimit ?? 0,
         creditBalance: user.creditBalance ?? 0,
         highInterestDebt: 0,
+        savingsYieldPct,
+        debtInterestPct,
+        emergencyMonthsTarget,
         goals: mappedGoals,
         spendByCategory,
       })
     }
 
-    // Demo with enough transactions: prefer live seeded numbers, fill gaps from demo profile
+    // Demo with live seeded numbers
     const fallback = demoFinancialProfile(month)
     return {
       month,
       currency: user.currency || "INR",
       monthlyIncome: monthlyIncome || fallback.monthlyIncome,
       monthlyExpenses: monthlyExpenses || fallback.monthlyExpenses,
-      totalBudget: budget?.totalBudget ?? fallback.totalBudget,
+      totalBudget: user.totalBudget ?? budget?.totalBudget ?? fallback.totalBudget,
       cashBalance: user.cashBalance ?? fallback.cashBalance,
-      investments: fallback.investments,
+      investments: user.investments ?? fallback.investments,
       creditLimit: user.creditLimit ?? fallback.creditLimit,
       creditBalance: user.creditBalance ?? fallback.creditBalance,
-      highInterestDebt: fallback.highInterestDebt,
-      savingsYieldPct: fallback.savingsYieldPct,
-      debtInterestPct: fallback.debtInterestPct,
+      highInterestDebt: user.highInterestDebt ?? fallback.highInterestDebt,
+      savingsYieldPct,
+      debtInterestPct,
       liquidYieldPct: fallback.liquidYieldPct,
       equityIllustrativePct: fallback.equityIllustrativePct,
-      emergencyMonthsTarget: fallback.emergencyMonthsTarget,
+      emergencyMonthsTarget,
       goals: mappedGoals.length > 0 ? mappedGoals : fallback.goals,
       spendByCategory: Object.keys(spendByCategory).length ? spendByCategory : fallback.spendByCategory,
     }

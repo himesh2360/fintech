@@ -7,6 +7,7 @@ import { motion } from "framer-motion"
 import {
   ActivityIcon,
   BarChart3Icon,
+  CoinsIcon,
   CompassIcon,
   LayoutDashboardIcon,
   ListOrderedIcon,
@@ -19,6 +20,8 @@ import { RiskGauge } from "@/components/dashboard/risk-gauge"
 import { SmartInsights } from "@/components/dashboard/smart-insights"
 import { NotificationsPanel, type NotificationDto } from "@/components/dashboard/notifications-panel"
 import { TransactionDialog } from "@/components/dashboard/transaction-dialog"
+import { StatementUploadDialog } from "@/components/dashboard/statement-upload-dialog"
+import { AgentTreasuryTab } from "@/components/dashboard/agent-treasury-tab"
 import { TransactionsTable } from "@/components/dashboard/transactions-table"
 import { BudgetCard } from "@/components/dashboard/budget-card"
 import { AssetsLiabilitiesCard } from "@/components/dashboard/assets-liabilities-card"
@@ -26,6 +29,11 @@ import { PortfolioBreakdownCard } from "@/components/dashboard/portfolio-breakdo
 import { UPIPaymentsCard } from "@/components/dashboard/upi-payments-card"
 import { TodaysMoves } from "@/components/dashboard/todays-moves"
 import { HealthScorecardCard } from "@/components/dashboard/health-scorecard"
+import { DecisionPromptBar } from "@/components/dashboard/decision-prompt-bar"
+import { ResilienceCard } from "@/components/dashboard/resilience-card"
+import { DecisionMemoryCard } from "@/components/dashboard/decision-memory-card"
+import { DemoPersonaBanner } from "@/components/dashboard/demo-persona-banner"
+import { ImpulseSliderCard } from "@/components/dashboard/impulse-slider-card"
 import { RiskRadar } from "@/components/dashboard/risk-radar"
 import { InvestSuggestionsCard } from "@/components/dashboard/invest-suggestions"
 import { ScenarioSimulator } from "@/components/dashboard/scenario-simulator"
@@ -127,6 +135,8 @@ export function DashboardClient() {
           alt=""
           width={120}
           height={120}
+          loading="eager"
+          priority
           className={cn(
             "pointer-events-none absolute right-3 top-3 opacity-[0.1] sm:right-5 sm:top-4",
             isDark && "opacity-[0.16] invert"
@@ -149,7 +159,8 @@ export function DashboardClient() {
                   : "Ranked next steps from your full financial picture."}
             </p>
           </div>
-          <div className="flex shrink-0 justify-start lg:justify-end">
+          <div className="flex shrink-0 justify-start lg:justify-end items-center gap-2">
+            <StatementUploadDialog onUploaded={refresh} />
             <TransactionDialog onCreated={refresh} />
           </div>
         </div>
@@ -174,11 +185,42 @@ export function DashboardClient() {
               <ActivityIcon className="size-3.5 shrink-0" />
               Activity
             </TabsTrigger>
+            <TabsTrigger value="treasury" className="gap-1.5 rounded-lg px-3 py-2.5 text-xs sm:text-sm bg-teal-500/10 text-teal-600 dark:text-teal-400 font-bold border border-teal-500/30">
+              <CoinsIcon className="size-3.5 shrink-0" />
+              <span>Agent Treasury (x402)</span>
+            </TabsTrigger>
           </TabsList>
         </div>
 
+        {/* AGENT TREASURY (x402) */}
+        <TabsContent value="treasury" className="mt-0 space-y-6 outline-none">
+          <MotionPanel>
+            <AgentTreasuryTab />
+          </MotionPanel>
+        </TabsContent>
+
         {/* DECIDE */}
         <TabsContent value="decide" className="mt-0 space-y-6 outline-none">
+          <MotionPanel>
+            <DemoPersonaBanner />
+          </MotionPanel>
+
+          <MotionPanel delay={0.02}>
+            <DecisionPromptBar />
+          </MotionPanel>
+
+          <MotionPanel delay={0.03}>
+            <ImpulseSliderCard
+              monthlyExpenses={summary?.kpis?.monthlyExpenses || 48000}
+              cashBalance={summary?.assets?.cashBalance || 420000}
+              baselineScore={decisions?.health?.score || 78}
+            />
+          </MotionPanel>
+
+          <MotionPanel delay={0.04}>
+            <ResilienceCard />
+          </MotionPanel>
+
           <div className="space-y-4">
             <SectionLabel
               icon={ListOrderedIcon}
@@ -186,10 +228,14 @@ export function DashboardClient() {
               title="Decide first — charts later"
               subtitle="These moves are ranked by urgency and ₹ impact."
             />
-            <MotionPanel>
+            <MotionPanel delay={0.04}>
               <TodaysMoves moves={decisions.todaysMoves} disclaimer={decisions.disclaimer} />
             </MotionPanel>
           </div>
+
+          <MotionPanel delay={0.06}>
+            <DecisionMemoryCard />
+          </MotionPanel>
 
           <div className="grid items-stretch gap-5 md:grid-cols-2">
             <GridCell>

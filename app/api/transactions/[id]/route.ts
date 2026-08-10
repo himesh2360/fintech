@@ -4,6 +4,8 @@ import { z } from "zod"
 import { dbConnect } from "@/lib/db"
 import { getAuthPayload } from "@/lib/request-auth"
 import { Transaction, TransactionCategories } from "@/models/Transaction"
+import { User } from "@/models/User"
+import { isCreditCategory } from "@/utils/categories"
 
 export const runtime = "nodejs"
 
@@ -33,7 +35,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       ...parsed.data,
       ...(parsed.data.occurredAt ? { occurredAt: new Date(parsed.data.occurredAt) } : {}),
     },
-    { new: true }
+    { returnDocument: "after" }
   ).lean()
 
   if (!updated) return NextResponse.json({ error: "Not found" }, { status: 404 })
@@ -61,6 +63,12 @@ export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string 
 
   const deleted = await Transaction.findOneAndDelete({ _id: id, userId: auth.sub }).lean()
   if (!deleted) return NextResponse.json({ error: "Not found" }, { status: 404 })
+
+  // Revert user balance on delete
+  const balanceField = isCreditCategory(deleted.category) ? "creditBalance" : "cashBalance"
+  const balanceDelta = deleted.type === "income" ? -deleted.amount : deleted.amount
+
+  await User.findByIdAndUpdate(auth.sub, { $inc: { [balanceField]: balanceDelta } })
+
   return NextResponse.json({ ok: true })
 }
-

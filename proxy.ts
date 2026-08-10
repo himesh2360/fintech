@@ -5,7 +5,7 @@ import { AUTH_COOKIE_NAME } from "@/lib/auth"
 const PROTECTED_PREFIXES = ["/dashboard", "/goals", "/settings", "/reports"]
 const AUTH_PAGES = ["/login", "/signup"]
 
-export function middleware(req: NextRequest) {
+export function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl
   const token = req.cookies.get(AUTH_COOKIE_NAME)?.value
   const isProtected = PROTECTED_PREFIXES.some((p) => pathname.startsWith(p))
@@ -37,4 +37,3 @@ export const config = {
     "/signup",
   ],
 }
-
