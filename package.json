@@ -2,6 +2,9 @@
   "name": "finsight",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev": "next dev",
     "dev:kill": "node scripts/kill-dev-server.js",

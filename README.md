@@ -97,15 +97,59 @@ On the login page, click **“Try demo account”**. That calls `/api/demo/seed`
 - `GET /api/report/pdf`
 - `POST /api/demo/seed`, `POST /api/demo/login`
 
-### Docker (full stack)
+### Deploy on Render (from GitHub)
 
-Build and run app + MongoDB:
+Repo: https://github.com/himesh2360/fintech
+
+**1) MongoDB (required)**  
+Use [MongoDB Atlas](https://www.mongodb.com/cloud/atlas) (free tier is fine):
+
+- Create a cluster + database user  
+- Network Access → allow `0.0.0.0/0` (Render dynos use dynamic IPs)  
+- Copy the connection string as `MONGODB_URI` (include `/finsight` or set `MONGODB_DB_NAME`)
+
+**2) Connect GitHub → Render**
+
+Option A — Blueprint (recommended):
+
+1. Push this repo to GitHub (`main`)  
+2. [Render Dashboard](https://dashboard.render.com) → **New** → **Blueprint**  
+3. Select `himesh2360/fintech`  
+4. Confirm `render.yaml` → create the `finsight` web service  
+
+Option B — Manual Web Service:
+
+1. **New** → **Web Service** → connect the GitHub repo  
+2. Runtime: **Node**  
+3. Build: `npm ci && npm run build`  
+4. Start: `npm run start`  
+5. Instance: Free (or Starter if build OOMs)
+
+**3) Environment variables (Render → Environment)**
+
+| Key | Notes |
+|-----|--------|
+| `MONGODB_URI` | Atlas URI (required) |
+| `MONGODB_DB_NAME` | `finsight` |
+| `JWT_SECRET` | Long random string (Blueprint can auto-generate) |
+| `DEMO_PASSWORD` | Set explicitly for demo login |
+| `PAY_TO` | USDC-opted-in Algorand testnet address |
+| `OPENAI_API_KEY` / `OPENROUTER_API_KEY` | Optional copilot |
+| `AVM_PRIVATE_KEY` | Optional — only if you want server-side live settle |
+
+Numeric x402 prices (`X402_PRICE_USDC=0.005`) — do **not** use bare `$0.005` in env panels.
+
+**4) GitHub auto-deploy**  
+With Blueprint / Git-connected service, every push to `main` redeploys.  
+CI also runs on push/PR via `.github/workflows/ci.yml` (lint + build).
+
+**5) Docker (optional)**  
+`Dockerfile` is included if you prefer Render **Docker** runtime or self-hosting:
 
 ```bash
-docker compose up --build
+docker build -t finsight .
+docker run -p 3000:3000 --env-file .env finsight
 ```
-
-Then open `http://localhost:3000`.
 
 ### x402 Micropayments Track (Algorand)
 

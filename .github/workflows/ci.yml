@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        env:
+          # Build-time placeholders (runtime secrets come from Render)
+          MONGODB_URI: mongodb://127.0.0.1:27017/finsight
+          MONGODB_DB_NAME: finsight
+          JWT_SECRET: ci-build-placeholder-secret-not-for-production
+          ALGORAND_NETWORK: algorand-testnet
+          X402_PRICE_USDC: "0.005"
+          X402_PLAN_PRICE_USDC: "0.002"
+          X402_ALLOW_SIMULATION: "true"
+        run: npm run build
