@@ -97,54 +97,68 @@ On the login page, click **“Try demo account”**. That calls `/api/demo/seed`
 - `GET /api/report/pdf`
 - `POST /api/demo/seed`, `POST /api/demo/login`
 
-### Deploy on Render (from GitHub)
+### Deploy (GitHub → Vercel / Render)
 
-Repo: https://github.com/himesh2360/fintech
+Repo: https://github.com/himesh2360/fintech  
 
-**1) MongoDB (required)**  
-Use [MongoDB Atlas](https://www.mongodb.com/cloud/atlas) (free tier is fine):
+**Important:** FinSight is a **single Next.js app** (UI + `/api/*` together).  
+Do **not** split “frontend on Vercel + backend on Render” — JWT cookies and relative `/api` calls will break across domains.
 
-- Create a cluster + database user  
-- Network Access → allow `0.0.0.0/0` (Render dynos use dynamic IPs)  
-- Copy the connection string as `MONGODB_URI` (include `/finsight` or set `MONGODB_DB_NAME`)
+Live Render full-stack example: https://fintech-vtdj.onrender.com/
 
-**2) Connect GitHub → Render**
+#### MongoDB (required for both)
 
-Option A — Blueprint (recommended):
+Use [MongoDB Atlas](https://www.mongodb.com/cloud/atlas):
 
-1. Push this repo to GitHub (`main`)  
-2. [Render Dashboard](https://dashboard.render.com) → **New** → **Blueprint**  
-3. Select `himesh2360/fintech`  
-4. Confirm `render.yaml` → create the `finsight` web service  
+- Create cluster + DB user  
+- Network Access → allow `0.0.0.0/0`  
+- Set `MONGODB_URI` (+ optional `MONGODB_DB_NAME=finsight`)
 
-Option B — Manual Web Service:
+#### Deploy on Vercel (recommended public URL)
 
-1. **New** → **Web Service** → connect the GitHub repo  
-2. Runtime: **Node**  
-3. Build: `npm ci && npm run build`  
-4. Start: `npm run start`  
-5. Instance: Free (or Starter if build OOMs)
+1. Go to [vercel.com/new](https://vercel.com/new) → Import `himesh2360/fintech`  
+2. Framework: **Next.js** (auto-detected) · Root: repo root · Node **20.x**  
+3. Add the same env vars you use on Render (see table below) for **Production**  
+4. Deploy → you get `https://<project>.vercel.app`  
+5. Optional: set custom domain under Project → Settings → Domains  
 
-**3) Environment variables (Render → Environment)**
+`vercel.json` pins region `bom1` (Mumbai). Every push to `main` auto-deploys when Git is connected.
+
+CLI alternative:
+
+```bash
+npx vercel login
+npx vercel link
+npx vercel env pull   # optional
+npx vercel --prod
+```
+
+#### Deploy on Render (already working)
+
+1. [Render Dashboard](https://dashboard.render.com) → **Blueprint** or **Web Service** → `himesh2360/fintech`  
+2. Build: `npm ci && npm run build` · Start: `npm run start`  
+3. Set env vars · auto-deploy from `main` via `render.yaml`
+
+#### Environment variables (Vercel + Render)
 
 | Key | Notes |
 |-----|--------|
 | `MONGODB_URI` | Atlas URI (required) |
 | `MONGODB_DB_NAME` | `finsight` |
-| `JWT_SECRET` | Long random string (Blueprint can auto-generate) |
-| `DEMO_PASSWORD` | Set explicitly for demo login |
+| `JWT_SECRET` | Long random string |
+| `DEMO_EMAIL` / `DEMO_PASSWORD` | Demo login |
 | `PAY_TO` | USDC-opted-in Algorand testnet address |
+| `FACILITATOR_URL` | `https://facilitator.goplausible.xyz` |
+| `ALGORAND_NETWORK` | `algorand-testnet` |
+| `X402_PRICE_USDC` | `0.005` (numeric — not `$0.005`) |
+| `X402_PLAN_PRICE_USDC` | `0.002` |
+| `X402_ALLOW_SIMULATION` | `true` |
 | `OPENAI_API_KEY` / `OPENROUTER_API_KEY` | Optional copilot |
-| `AVM_PRIVATE_KEY` | Optional — only if you want server-side live settle |
+| `AVM_PRIVATE_KEY` | Optional server-side live settle |
 
-Numeric x402 prices (`X402_PRICE_USDC=0.005`) — do **not** use bare `$0.005` in env panels.
+Copy values from your local `.env` / Render dashboard into Vercel → Settings → Environment Variables → Production, then **Redeploy**.
 
-**4) GitHub auto-deploy**  
-With Blueprint / Git-connected service, every push to `main` redeploys.  
-CI also runs on push/PR via `.github/workflows/ci.yml` (lint + build).
-
-**5) Docker (optional)**  
-`Dockerfile` is included if you prefer Render **Docker** runtime or self-hosting:
+#### Docker (optional)
 
 ```bash
 docker build -t finsight .
