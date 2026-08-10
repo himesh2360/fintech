@@ -162,11 +162,14 @@ export async function POST(req: Request) {
       "Content-Type": "application/json",
     }
     if (!useOpenAI) {
-      headers["HTTP-Referer"] =
+      const appUrl =
         process.env.NEXT_PUBLIC_APP_URL ||
-        process.env.VERCEL_PROJECT_PRODUCTION_URL
+        (process.env.VERCEL_PROJECT_PRODUCTION_URL
           ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
-          : process.env.RENDER_EXTERNAL_URL || "https://fintech-vtdj.onrender.com"
+          : "") ||
+        process.env.RENDER_EXTERNAL_URL ||
+        "https://fintech-vtdj.onrender.com"
+      headers["HTTP-Referer"] = appUrl
       headers["X-Title"] = "FinSight"
     }
     return headers
