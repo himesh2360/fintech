@@ -1,23 +1,33 @@
 import { NextResponse } from "next/server"
 
 import { dbConnect } from "@/lib/db"
-import { AUTH_COOKIE_NAME, authCookieOptions, signAuthToken } from "@/lib/auth"
+import { AUTH_COOKIE_NAME, authCookieOptions, hashPassword, signAuthToken } from "@/lib/auth"
+import { demoEmail } from "@/lib/demo"
+import { seedDemoUserData } from "@/lib/demo-seed"
 import { User } from "@/models/User"
 
 export const runtime = "nodejs"
 
-function demoEmail() {
-  return process.env.DEMO_EMAIL || "demo@finsight.app"
-}
-
 export async function POST() {
   await dbConnect()
-  const user = await User.findOne({ email: demoEmail() })
+  const email = demoEmail()
+  const password = process.env.DEMO_PASSWORD || "demo12345"
+
+  let user = await User.findOne({ email })
   if (!user) {
-    return NextResponse.json(
-      { error: "Demo user not seeded yet. Call /api/demo/seed first." },
-      { status: 404 }
-    )
+    user = await User.create({
+      name: "Rahul Sharma",
+      email,
+      passwordHash: await hashPassword(password),
+      currency: "INR",
+    })
+  }
+
+  // Demo login always refreshes the demo story so the account stays consistent
+  await seedDemoUserData(user._id.toString())
+  user = await User.findById(user._id)
+  if (!user) {
+    return NextResponse.json({ error: "Failed to prepare demo user" }, { status: 500 })
   }
 
   const token = signAuthToken({ sub: user._id.toString(), email: user.email, name: user.name })
@@ -28,4 +38,3 @@ export async function POST() {
   res.cookies.set(AUTH_COOKIE_NAME, token, authCookieOptions())
   return res
 }
-

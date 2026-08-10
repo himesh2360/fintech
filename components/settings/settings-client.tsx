@@ -13,7 +13,7 @@ import { Switch } from "@/components/ui/switch"
 
 export function SettingsClient() {
   const [biometric, setBiometric] = React.useState(false)
-  const [fraudSim, setFraudSim] = React.useState(true)
+  const [fraudSim, setFraudSim] = React.useState(false)
   const [linked, setLinked] = React.useState(false)
 
   // Decision preferences state
@@ -25,7 +25,7 @@ export function SettingsClient() {
   React.useEffect(() => {
     try {
       setBiometric(localStorage.getItem("finsight_bio") === "1")
-      setFraudSim(localStorage.getItem("finsight_fraud") !== "0")
+      setFraudSim(localStorage.getItem("finsight_fraud") === "1")
       setLinked(localStorage.getItem("finsight_bank") === "1")
     } catch {
       // ignore

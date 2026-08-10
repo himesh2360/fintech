@@ -1,39 +1,17 @@
-import { NextResponse } from "next/server"
+import { type NextRequest, NextResponse } from "next/server"
 
-import { createX402Challenge, verifyAlgorandPayment } from "@/lib/algorand-x402"
+import { buildOrchestratorReceipt } from "@/lib/algorand-x402"
+import {
+  agentPlanRouteConfig,
+  buildBusinessModelMeta,
+  X402_AGENT_PLAN_PRICE,
+  x402Server,
+} from "@/lib/x402-server"
+import { withX402Receipt } from "@/lib/with-x402-receipt"
 
 export const runtime = "nodejs"
 
-export async function POST(req: Request) {
-  const paymentHeader = req.headers.get("x-payment-proof") || req.headers.get("x-algorand-txid")
-
-  // STEP 1 & 2: HTTP 402 Payment Required Challenge if unpaid
-  if (!paymentHeader) {
-    const challenge = createX402Challenge(0.002, "/api/x402/agent-plan")
-    return NextResponse.json(
-      {
-        status: 402,
-        error: "Payment Required",
-        message: "Algorand x402 Micropayment Required ($0.002 USDC on Algorand Testnet).",
-        x402: challenge,
-      },
-      {
-        status: 402,
-        headers: {
-          "WWW-Authenticate": `x402 challenge="${challenge.challengeId}", assetId="${challenge.assetId}", payTo="${challenge.payTo}", amount="${challenge.amountMicroUsdc}"`,
-          "X-402-Price-USDC": "0.002",
-          "X-402-PayTo": challenge.payTo,
-        },
-      }
-    )
-  }
-
-  // STEP 3 to 6: Payment Verification
-  const verification = await verifyAlgorandPayment(paymentHeader, null, 0.002)
-  if (!verification.verified || !verification.receipt) {
-    return NextResponse.json({ error: verification.error || "Payment verification failed" }, { status: 403 })
-  }
-
+async function handler(req: NextRequest) {
   const body = await req.json().catch(() => ({}))
   const {
     agentId = "agent-researcher-v1",
@@ -45,7 +23,6 @@ export async function POST(req: Request) {
     currentProgressPct = 100,
   } = body
 
-  // Economic Engine Optimization (Plan A vs Plan B vs Plan C)
   const planA = {
     id: "plan-a-budget",
     name: "Plan A (Ultra-Budget)",
@@ -63,7 +40,11 @@ export async function POST(req: Request) {
     costUsdc: 0.073,
     qualityScore: 91,
     expectedLatencyMs: 2100,
-    servicesUsed: ["Tavily-Search ($0.002)", "OpenRouter-Llama3.3 ($0.008)", "Verifier-API ($0.003)"],
+    servicesUsed: [
+      "/api/v1/x402/services/search ($0.002)",
+      "/api/v1/x402/services/llm ($0.004)",
+      "/api/v1/x402/services/verify ($0.001)",
+    ],
     status: "RECOMMENDED",
     risk: "LOW",
   }
@@ -79,22 +60,30 @@ export async function POST(req: Request) {
     risk: "MEDIUM",
   }
 
-  // Spend / Progress Ratio Anomaly Detection
   let anomalyDetected = false
   let anomalyMessage = "Normal spending efficiency"
   if (currentSpentUsdc > 0.06 && currentProgressPct < 30) {
     anomalyDetected = true
-    anomalyMessage = "RUNAWAY_LOOP_WARNING: High spending with low task progress. Recommend auto-rerouting provider."
+    anomalyMessage =
+      "RUNAWAY_LOOP_WARNING: High spending with low task progress. Recommend auto-rerouting provider."
   }
 
-  // Value-at-Risk Calculation
   const expectedCostUsdc = planB.costUsdc
   const p90CostUsdc = Number((expectedCostUsdc * 1.4).toFixed(3))
   const p99CostUsdc = Number((expectedCostUsdc * 1.8).toFixed(3))
 
+  const receipt = buildOrchestratorReceipt({
+    txId: `PENDING_SETTLE_${Date.now()}`,
+    expectedPriceUsdc: 0.002,
+    taskRef: task,
+    simulated: false,
+    verifiedBy: "GoPlausible",
+  })
+
   return NextResponse.json({
     status: 200,
-    message: "Economic Execution Plan Generated Successfully!",
+    message: "Economic Execution Plan Generated Successfully",
+    businessModel: buildBusinessModelMeta("/api/x402/agent-plan", X402_AGENT_PLAN_PRICE),
     task: {
       agentId,
       taskDescription: task,
@@ -119,7 +108,13 @@ export async function POST(req: Request) {
         anomalyMessage,
       },
     },
-    // STEP 7 & 8: Algorand Transaction Receipt
-    x402Receipt: verification.receipt,
+    x402Receipt: receipt,
   })
 }
+
+export const POST = withX402Receipt(handler, agentPlanRouteConfig(), x402Server, {
+  endpoint: "/api/x402/agent-plan",
+  price: X402_AGENT_PLAN_PRICE,
+  priceUsdc: 0.002,
+  taskRef: "agent-plan",
+})

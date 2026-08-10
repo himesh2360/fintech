@@ -22,9 +22,9 @@ const userSchema = new mongoose.Schema(
     email: { type: String, required: true, unique: true, lowercase: true, trim: true, index: true },
     passwordHash: { type: String, required: true },
     currency: { type: String, default: 'INR' },
-    cashBalance: { type: Number, default: 12000 },
-    creditLimit: { type: Number, default: 5000 },
-    creditBalance: { type: Number, default: 1200 },
+    cashBalance: { type: Number, default: 0 },
+    creditLimit: { type: Number, default: 0 },
+    creditBalance: { type: Number, default: 0 },
   },
   { timestamps: true }
 )
@@ -47,7 +47,7 @@ const budgetSchema = new mongoose.Schema(
   {
     userId: { type: mongoose.Schema.Types.ObjectId, required: true, index: true, ref: 'User' },
     month: { type: String, required: true, index: true },
-    totalBudget: { type: Number, required: true, default: 2000, min: 0 },
+    totalBudget: { type: Number, required: true, default: 0, min: 0 },
     categoryBudgets: { type: Map, of: Number, default: {} },
   },
   { timestamps: true }
@@ -109,130 +109,135 @@ async function hashPassword(password) {
 
 // Commands
 async function seedDemo() {
-  console.log('\n📊 Seeding demo data...')
+  console.log('\n📊 Seeding DEMO ACCOUNT ONLY (demo@finsight.app persona)...')
 
-  const email = process.env.DEMO_EMAIL || 'demo@finsight.app'
+  const email = (process.env.DEMO_EMAIL || 'demo@finsight.app').toLowerCase()
   const password = process.env.DEMO_PASSWORD || 'demo12345'
+  const now = new Date()
+  const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+
+  // Matches lib/demo-seed.ts — never used for real signups
+  const DEMO_PERSONA = {
+    name: 'Rahul Sharma',
+    monthlyIncome: 75000,
+    monthlyExpenses: 48000,
+    totalBudget: 50000,
+    cashBalance: 420000,
+    investments: 358500,
+    creditLimit: 300000,
+    creditBalance: 105000,
+    highInterestDebt: 105000,
+    savingsYieldPct: 6.5,
+    debtInterestPct: 14,
+    emergencyMonthsTarget: 6,
+  }
 
   try {
-    // Create or get demo user
     let user = await User.findOne({ email })
+    const passwordHash = await hashPassword(password)
     if (!user) {
-      const passwordHash = await hashPassword(password)
       user = await User.create({
-        name: 'Demo Founder',
         email,
         passwordHash,
         currency: 'INR',
-        cashBalance: 14500,
-        creditLimit: 7000,
-        creditBalance: 2100,
+        ...DEMO_PERSONA,
       })
       console.log(`✓ Created demo user: ${email}`)
     } else {
-      console.log(`✓ Demo user already exists: ${email}`)
+      await User.findByIdAndUpdate(user._id, {
+        $set: { passwordHash, currency: 'INR', ...DEMO_PERSONA },
+      })
+      console.log(`✓ Refreshed demo user persona: ${email}`)
     }
 
-    // Check if data already exists
-    const txnCount = await Transaction.countDocuments({ userId: user._id })
-    if (txnCount > 0) {
-      console.log('✓ Demo data already seeded, skipping transactions')
-      return
-    }
+    // Replace demo-only ledger (do not touch other users)
+    await Promise.all([
+      Transaction.deleteMany({ userId: user._id }),
+      Budget.deleteMany({ userId: user._id }),
+      Goal.deleteMany({ userId: user._id }),
+      Notification.deleteMany({ userId: user._id }),
+    ])
 
-    // Create budget
-    const now = new Date()
-    const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
     await Budget.create({
       userId: user._id,
       month,
-      totalBudget: 3200,
+      totalBudget: DEMO_PERSONA.totalBudget,
       categoryBudgets: {
-        Food: 520,
-        Transport: 240,
-        Shopping: 400,
+        'Utilities & Rent': 20000,
+        'Food & Dining': 8000,
+        EMI: 10000,
+        Shopping: 7000,
+        Transport: 5000,
       },
     })
-    console.log('✓ Created budget')
 
-    // Create goals
     await Goal.insertMany([
       {
         userId: user._id,
         title: 'Emergency Fund',
-        targetAmount: 5000,
-        currentAmount: 3100,
+        targetAmount: 288000,
+        currentAmount: 288000,
         status: 'active',
       },
       {
         userId: user._id,
-        title: 'Vacation',
-        targetAmount: 2000,
-        currentAmount: 640,
-        status: 'active',
-      },
-      {
-        userId: user._id,
-        title: 'Investing Challenge',
-        targetAmount: 3000,
-        currentAmount: 1700,
+        title: 'Goa Vacation',
+        targetAmount: 60000,
+        currentAmount: 18000,
+        deadline: new Date(Date.now() + 1000 * 60 * 60 * 24 * 120),
         status: 'active',
       },
     ])
-    console.log('✓ Created 3 goals')
 
-    // Create sample transactions
-    const merchants = ['Starbucks', 'Uber', 'Amazon', 'Netflix', 'Whole Foods', 'Target', 'Shell', 'Gym']
-    const categories = ['Food', 'Transport', 'Shopping', 'Bills', 'Entertainment', 'Investments', 'Utilities', 'Groceries']
-
-    const transactions = []
-
-    // Income
-    transactions.push({
-      userId: user._id,
-      type: 'income',
-      amount: 5200,
-      category: 'Other',
-      merchant: 'Payroll',
-      occurredAt: new Date(now.getFullYear(), now.getMonth(), 1),
-      note: 'Monthly salary',
-    })
-
-    transactions.push({
-      userId: user._id,
-      type: 'income',
-      amount: 650,
-      category: 'Other',
-      merchant: 'Freelance',
-      occurredAt: new Date(now.getFullYear(), now.getMonth(), 12),
-      note: 'Contract payment',
-    })
-
-    // Expenses
-    for (let i = 0; i < 40; i++) {
-      const dayOffset = Math.floor(Math.random() * 55)
-      const date = new Date(now)
-      date.setDate(now.getDate() - dayOffset)
-      date.setHours(Math.floor(Math.random() * 14) + 8, Math.floor(Math.random() * 60), 0)
-
-      const category = categories[Math.floor(Math.random() * categories.length)]
-      const merchant = merchants[Math.floor(Math.random() * merchants.length)]
-      const amount = Math.round(Math.random() * 150) + 10
-
-      transactions.push({
+    await Transaction.insertMany([
+      {
         userId: user._id,
         type: 'expense',
-        amount,
-        category,
-        merchant,
-        occurredAt: date,
-      })
-    }
+        amount: 18500,
+        category: 'Utilities & Rent',
+        merchant: 'Brigade Residency Rent',
+        note: 'Monthly apartment rent',
+        occurredAt: new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, 9, 0, 0),
+      },
+      {
+        userId: user._id,
+        type: 'expense',
+        amount: 4200,
+        category: 'Food & Dining',
+        merchant: 'Swiggy & Zomato',
+        note: 'Food delivery & weekend dining',
+        occurredAt: new Date(now.getFullYear(), now.getMonth(), now.getDate() - 3, 20, 0, 0),
+      },
+      {
+        userId: user._id,
+        type: 'expense',
+        amount: 8500,
+        category: 'EMI',
+        merchant: 'HDFC Credit Card EMI',
+        note: 'Electronics purchase EMI',
+        occurredAt: new Date(now.getFullYear(), now.getMonth(), now.getDate() - 5, 10, 0, 0),
+      },
+      {
+        userId: user._id,
+        type: 'expense',
+        amount: 6800,
+        category: 'Shopping',
+        merchant: 'Amazon India',
+        note: 'Office accessories',
+        occurredAt: new Date(now.getFullYear(), now.getMonth(), now.getDate() - 8, 15, 0, 0),
+      },
+      {
+        userId: user._id,
+        type: 'income',
+        amount: 75000,
+        category: 'Income',
+        merchant: 'Tech Corp Salary',
+        note: 'Monthly salary payout',
+        occurredAt: new Date(now.getFullYear(), now.getMonth(), now.getDate() - 10, 9, 0, 0),
+      },
+    ])
 
-    await Transaction.insertMany(transactions)
-    console.log(`✓ Created ${transactions.length} transactions`)
-
-    console.log('\n✅ Demo data seeded successfully!\n')
+    console.log('\n✅ Demo account seeded (Rahul Bangalore persona). Real users stay empty.\n')
     console.log(`Login credentials:`)
     console.log(`  Email: ${email}`)
     console.log(`  Password: ${password}\n`)
@@ -298,9 +303,14 @@ async function createUser(email, password, name) {
       email: email.toLowerCase(),
       passwordHash,
       currency: 'INR',
-      cashBalance: 12000,
-      creditLimit: 5000,
-      creditBalance: 1200,
+      cashBalance: 0,
+      creditLimit: 0,
+      creditBalance: 0,
+      monthlyIncome: 0,
+      monthlyExpenses: 0,
+      totalBudget: 0,
+      investments: 0,
+      highInterestDebt: 0,
     })
 
     console.log(`✅ User created successfully!\n`)

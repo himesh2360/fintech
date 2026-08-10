@@ -4,7 +4,6 @@ import { dbConnect } from "@/lib/db"
 import { getDecisionBundle } from "@/lib/financial-context"
 import { getAuthPayload } from "@/lib/request-auth"
 import { Transaction } from "@/models/Transaction"
-import { User } from "@/models/User"
 import { monthKey } from "@/utils/time"
 
 export const runtime = "nodejs"
@@ -17,11 +16,6 @@ function dayKey(d: Date) {
   return d.toISOString().slice(0, 10)
 }
 
-function isDemoEmail(email?: string | null) {
-  const demo = (process.env.DEMO_EMAIL || "demo@finsight.app").toLowerCase()
-  return !!email && email.toLowerCase() === demo
-}
-
 export async function GET(req: Request) {
   const auth = getAuthPayload(req)
   if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -32,26 +26,36 @@ export async function GET(req: Request) {
   const bundle = await getDecisionBundle(auth.sub, month)
   const p = bundle.profile
 
-  let user: any = null
-  let txns: any[] = []
+  let txns: Array<{
+    _id: { toString(): string }
+    type: string
+    amount: number
+    occurredAt: Date
+    merchant?: string | null
+    category?: string | null
+    note?: string | null
+  }> = []
   try {
     await dbConnect()
-    const [userRes, txnsRes] = await Promise.all([
-      User.findById(auth.sub).select({ email: 1 }).lean(),
-      Transaction.find({
-        userId: auth.sub,
-        occurredAt: { $gte: new Date(Date.now() - 14 * 86400000) },
-      })
-        .sort({ occurredAt: -1 })
-        .limit(200)
-        .lean(),
-    ])
-    user = userRes
-    txns = txnsRes || []
+    const txnsRes = await Transaction.find({
+      userId: auth.sub,
+      occurredAt: { $gte: new Date(Date.now() - 14 * 86400000) },
+    })
+      .sort({ occurredAt: -1 })
+      .limit(200)
+      .lean()
+    txns = (txnsRes || []).map((t) => ({
+      _id: t._id,
+      type: String(t.type),
+      amount: Number(t.amount),
+      occurredAt: new Date(t.occurredAt),
+      merchant: t.merchant ?? null,
+      category: t.category ?? null,
+      note: t.note ?? null,
+    }))
   } catch (err) {
     console.warn("DB connection warning in summary route, returning cached/fallback summary:", err)
   }
-  const demo = isDemoEmail(user?.email)
 
   // Build last-14-day series from real ledger only (no invented bars)
   const byDay = new Map<string, { income: number; expense: number }>()
@@ -77,27 +81,14 @@ export async function GET(req: Request) {
     .filter(([, amount]) => amount > 0)
     .map(([category, amount]) => ({ category, amount: Math.round(amount) }))
 
-  // Portfolio history / asset-class split are not stored for real users.
-  // Demo account only may show illustrative series from the seeded profile.
-  let investmentGrowth: Array<{ month: string; value: number }> = []
-  let portfolio = { equity: 0, mutualFunds: 0, crypto: 0, bonds: 0, other: 0 }
-  if (demo && p.investments > 0) {
-    const v = p.investments
-    investmentGrowth = [
-      { month: "2025-09", value: Math.round(v * 0.8) },
-      { month: "2025-10", value: Math.round(v * 0.84) },
-      { month: "2025-11", value: Math.round(v * 0.88) },
-      { month: "2025-12", value: Math.round(v * 0.92) },
-      { month: "2026-01", value: Math.round(v * 0.96) },
-      { month: "2026-02", value: Math.round(v) },
-    ]
-    portfolio = {
-      equity: Math.round(v * 0.4),
-      mutualFunds: Math.round(v * 0.28),
-      crypto: Math.round(v * 0.2),
-      bonds: Math.round(v * 0.1),
-      other: Math.round(v * 0.02),
-    }
+  // No invented portfolio history or asset-class split — only what the user profile stores
+  const investmentGrowth: Array<{ month: string; value: number }> = []
+  const portfolio = {
+    equity: 0,
+    mutualFunds: 0,
+    crypto: 0,
+    bonds: 0,
+    other: Math.round(p.investments || 0),
   }
 
   const monthIncome = Math.round(p.monthlyIncome)

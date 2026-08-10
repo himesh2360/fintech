@@ -116,7 +116,7 @@ export function TransactionDialog({ onCreated }: { onCreated: () => void }) {
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-2">
               <Label>Merchant</Label>
-              <Input className="rounded-2xl" placeholder="e.g. Starbucks" {...form.register("merchant")} />
+              <Input className="rounded-2xl" placeholder="Merchant name" {...form.register("merchant")} />
             </div>
             <div className="space-y-2">
               <Label>Note</Label>

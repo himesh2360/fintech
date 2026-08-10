@@ -44,7 +44,7 @@ export function GoalsClient() {
 
   const form = useForm<CreateFormValues>({
     resolver: zodResolver(CreateSchema),
-    defaultValues: { title: "", targetAmount: 1000 },
+    defaultValues: { title: "", targetAmount: 0 },
   })
 
   const refresh = React.useCallback(async () => {

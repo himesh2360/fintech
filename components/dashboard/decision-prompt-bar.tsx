@@ -10,26 +10,43 @@ type Preset = {
   id: string
   label: string
   title: string
-  amount: number
+  /** Fraction of monthly income when income > 0; otherwise amount stays 0 until user edits. */
+  incomeFraction: number
   icon: React.ReactNode
 }
 
 const PRESETS: Preset[] = [
-  { id: "laptop", label: "Buy Laptop", title: "Buy ₹55,000 Work Laptop", amount: 55000, icon: <LaptopIcon className="size-3.5" /> },
-  { id: "emi", label: "Take EMI", title: "Take ₹40,000 Credit EMI", amount: 40000, icon: <CreditCardIcon className="size-3.5" /> },
-  { id: "vacation", label: "Plan Vacation", title: "Plan ₹35,000 Trip", amount: 35000, icon: <PlaneIcon className="size-3.5" /> },
-  { id: "sip", label: "Increase SIP", title: "Increase Monthly SIP by ₹5,000", amount: 15000, icon: <TrendingUpIcon className="size-3.5" /> },
-  { id: "bike", label: "Buy Vehicle", title: "Buy ₹1,20,000 Vehicle", amount: 120000, icon: <CarIcon className="size-3.5" /> },
+  { id: "laptop", label: "Buy Laptop", title: "Buy Work Laptop", incomeFraction: 0.7, icon: <LaptopIcon className="size-3.5" /> },
+  { id: "emi", label: "Take EMI", title: "Take Credit EMI", incomeFraction: 0.5, icon: <CreditCardIcon className="size-3.5" /> },
+  { id: "vacation", label: "Plan Vacation", title: "Plan a Trip", incomeFraction: 0.45, icon: <PlaneIcon className="size-3.5" /> },
+  { id: "sip", label: "Increase SIP", title: "Increase Monthly SIP", incomeFraction: 0.08, icon: <TrendingUpIcon className="size-3.5" /> },
+  { id: "bike", label: "Buy Vehicle", title: "Buy a Vehicle", incomeFraction: 1.5, icon: <CarIcon className="size-3.5" /> },
 ]
 
 export function DecisionPromptBar() {
   const [modalOpen, setModalOpen] = React.useState(false)
-  const [activeTitle, setActiveTitle] = React.useState("Work Laptop Purchase")
-  const [activeAmount, setActiveAmount] = React.useState(55000)
+  const [activeTitle, setActiveTitle] = React.useState("Custom Purchase")
+  const [activeAmount, setActiveAmount] = React.useState(0)
+  const [monthlyIncome, setMonthlyIncome] = React.useState(0)
+
+  React.useEffect(() => {
+    fetch("/api/dashboard/summary", { credentials: "include" })
+      .then((r) => r.json())
+      .then((json) => {
+        const income = Number(json?.kpis?.monthlyIncome || 0)
+        setMonthlyIncome(Number.isFinite(income) ? income : 0)
+      })
+      .catch(() => setMonthlyIncome(0))
+  }, [])
+
+  const amountFromIncome = (fraction: number) => {
+    if (monthlyIncome <= 0) return 0
+    return Math.round(monthlyIncome * fraction)
+  }
 
   const handleSelectPreset = (p: Preset) => {
     setActiveTitle(p.title)
-    setActiveAmount(p.amount)
+    setActiveAmount(amountFromIncome(p.incomeFraction))
     setModalOpen(true)
   }
 
@@ -46,14 +63,14 @@ export function DecisionPromptBar() {
               What are you deciding today?
             </h1>
             <p className="text-xs text-muted-foreground">
-              See the future of your financial decisions before you make them.
+              Simulate with your live numbers — empty accounts start at ₹0 until you add income or enter an amount.
             </p>
           </div>
 
           <Button
             onClick={() => {
               setActiveTitle("Custom Purchase")
-              setActiveAmount(30000)
+              setActiveAmount(0)
               setModalOpen(true)
             }}
             className="rounded-2xl gap-2 shadow-sm text-xs h-10 px-5 shrink-0"
@@ -63,7 +80,6 @@ export function DecisionPromptBar() {
           </Button>
         </div>
 
-        {/* Quick Presets */}
         <div className="mt-4 flex flex-wrap gap-2">
           {PRESETS.map((p) => (
             <button

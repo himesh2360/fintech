@@ -211,9 +211,9 @@ export function DashboardClient() {
 
           <MotionPanel delay={0.03}>
             <ImpulseSliderCard
-              monthlyExpenses={summary?.kpis?.monthlyExpenses || 48000}
-              cashBalance={summary?.assets?.cashBalance || 420000}
-              baselineScore={decisions?.health?.score || 78}
+              monthlyExpenses={summary?.kpis?.monthlyExpenses ?? 0}
+              cashBalance={summary?.assets?.cashBalance ?? 0}
+              baselineScore={decisions?.health?.score ?? 0}
             />
           </MotionPanel>
 

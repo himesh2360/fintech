@@ -2,158 +2,17 @@ import { NextResponse } from "next/server"
 
 import { dbConnect } from "@/lib/db"
 import { getAuthPayload } from "@/lib/request-auth"
+import { extractStatementText } from "@/lib/statement-extract"
+import { parseBankStatementText, toOccurredAt, type ParsedStatementTxn } from "@/lib/statement-parser"
 import { Transaction } from "@/models/Transaction"
 import { User } from "@/models/User"
 
 export const runtime = "nodejs"
 
-type RawTxnInput = {
-  date?: string
-  type?: "income" | "expense"
-  amount: number
-  category?: string
-  merchant?: string
-  note?: string
-}
-
-function parseCategoryFromDesc(desc: string, isIncome: boolean): string {
-  if (isIncome) return "Income"
-  const d = desc.toLowerCase()
-  if (/swiggy|zomato|starbucks|food|dining|restaurant|pizza|cafe|instamart|blinkit|dhaba|cafeteria/i.test(d)) return "Food & Dining"
-  if (/rent|electricity|wifi|jiofiber|airtel|bill|utility|bses|uppcl|broadband|hostel/i.test(d)) return "Utilities & Rent"
-  if (/amazon|flipkart|ajio|croma|decathlon|myntra|dmart|shopping|nykaa|hardware|stationery/i.test(d)) return "Shopping"
-  if (/netflix|spotify|bookmyshow|pvr|movie|entertainment/i.test(d)) return "Entertainment & Hobbies"
-  if (/ola|uber|rapido|irctc|petrol|fuel|transport|pmpml/i.test(d)) return "Transport"
-  if (/sip|mutual fund|axis bluechip|invest/i.test(d)) return "Investments"
-  if (/emi|credit card|hdfc cc|loan|lic premium|tuition fee|college/i.test(d)) return "EMI"
-  return "Other"
-}
-
-function parseUniversalBankLine(line: string): RawTxnInput | null {
-  const trimmed = line.trim()
-  const dateMatch = trimmed.match(/^(\d{4}-\d{2}-\d{2}|\d{2}\/\d{2}\/\d{4})\s+/)
-  if (!dateMatch) return null
-
-  const rawDate = dateMatch[1]
-  const rest = trimmed.slice(dateMatch[0].length).trim()
-  const tokens = rest.split(/\s+/)
-  if (tokens.length < 3) return null
-
-  const balanceStr = tokens[tokens.length - 1].replace(/,/g, "")
-  if (isNaN(parseFloat(balanceStr))) return null
-
-  let amount = 0
-  let isDeposit = false
-  let descTokensEnd = tokens.length - 1
-
-  const tLast2 = tokens[tokens.length - 2]?.replace(/,/g, "")
-  const tLast3 = tokens[tokens.length - 3]?.replace(/,/g, "")
-
-  const num2 = parseFloat(tLast2)
-  const num3 = parseFloat(tLast3)
-
-  if (!isNaN(num2) && !isNaN(num3)) {
-    if (num2 > 0) {
-      amount = num2
-      isDeposit = true
-    } else if (num3 > 0) {
-      amount = num3
-      isDeposit = false
-    }
-    descTokensEnd = tokens.length - 3
-  } else if (!isNaN(num2) && num2 > 0) {
-    amount = num2
-    isDeposit = /NEFT CR|CREDIT|DEPOSIT|SALARY|ALLOWANCE|CASHBACK|VENDOR SETTLEMENT/i.test(trimmed)
-    descTokensEnd = tokens.length - 2
-  }
-
-  if (amount <= 0) return null
-
-  let desc = tokens.slice(0, descTokensEnd).join(" ")
-  desc = desc.replace(/\s+[A-Z0-9]{8,15}$/i, "") // trim Ref/Cheque number
-
-  const category = parseCategoryFromDesc(desc, isDeposit)
-  const merchant = desc.replace(/^(UPI-|POS-|NEFT CR-|ATM WDL-|ATM CASH WDL )/i, "").trim()
-
-  return {
-    date: new Date(rawDate).toISOString(),
-    type: isDeposit ? "income" : "expense",
-    amount,
-    category,
-    merchant: merchant || "Statement Merchant",
-    note: desc,
-  }
-}
-
-function parseBankStatementText(content: string): RawTxnInput[] {
-  const lines = content.split(/\r?\n/).filter((l) => l.trim().length > 0)
-  const txns: RawTxnInput[] = []
-
-  for (const line of lines) {
-    const parsedLine = parseUniversalBankLine(line)
-    if (parsedLine) {
-      txns.push(parsedLine)
-      continue
-    }
-
-    // CSV Split Fallback
-    const parts = line.trim().split(/,|\t/).map((p) => p.trim().replace(/^["']|["']$/g, ""))
-    if (parts.length >= 2) {
-      let amount = 0
-      let merchant = ""
-      let dateStr = new Date().toISOString()
-      const isIncome = /credited|salary|refund|deposit|income/i.test(line)
-      const txnType: "expense" | "income" = isIncome ? "income" : "expense"
-
-      for (const p of parts) {
-        const num = parseFloat(p.replace(/[^\d.-]/g, ""))
-        if (!isNaN(num) && num !== 0 && amount === 0) {
-          amount = Math.abs(num)
-        } else if (/\d{4}-\d{2}-\d{2}|\d{2}\/\d{2}\/\d{4}/.test(p)) {
-          dateStr = new Date(p).toISOString()
-        } else if (p.length > 2 && !merchant) {
-          merchant = p
-        }
-      }
-
-      if (amount > 0) {
-        txns.push({
-          date: dateStr,
-          type: txnType,
-          amount,
-          category: parseCategoryFromDesc(merchant || line, isIncome),
-          merchant: merchant || "CSV Import",
-          note: line.slice(0, 80),
-        })
-      }
-    }
-  }
-
-  return txns
-}
-
-export async function POST(req: Request) {
-  const auth = getAuthPayload(req)
-  if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-
-  const body = await req.json().catch(() => ({}))
-  const { csvContent, transactions: rawTxnsArray } = body
-
-  let txnsToInsert: RawTxnInput[] = []
-
-  if (Array.isArray(rawTxnsArray) && rawTxnsArray.length > 0) {
-    txnsToInsert = rawTxnsArray
-  } else if (typeof csvContent === "string" && csvContent.trim()) {
-    txnsToInsert = parseBankStatementText(csvContent)
-  }
-
-  if (txnsToInsert.length === 0) {
-    return NextResponse.json({ error: "No valid transactions found in statement data" }, { status: 400 })
-  }
-
+async function insertParsedTransactions(userId: string, txnsToInsert: ParsedStatementTxn[]) {
   await dbConnect()
 
-  const existingTxns = await Transaction.find({ userId: auth.sub }).select("occurredAt type amount merchant").lean()
+  const existingTxns = await Transaction.find({ userId }).select("occurredAt type amount merchant").lean()
 
   const existingKeys = new Set(
     existingTxns.map(
@@ -166,11 +25,11 @@ export async function POST(req: Request) {
     )
   )
 
-  const uniqueToInsert: RawTxnInput[] = []
+  const uniqueToInsert: ParsedStatementTxn[] = []
   let duplicatesCount = 0
 
   for (const t of txnsToInsert) {
-    const dStr = (t.date ? new Date(t.date) : new Date()).toISOString().slice(0, 10)
+    const dStr = (t.date || new Date().toISOString()).slice(0, 10)
     const mStr = (t.merchant || "").toLowerCase().trim()
     const key = `${dStr}_${t.type || "expense"}_${Number(t.amount || 0).toFixed(2)}_${mStr}`
 
@@ -183,19 +42,20 @@ export async function POST(req: Request) {
   }
 
   if (uniqueToInsert.length === 0) {
-    return NextResponse.json({
+    return {
       success: true,
       count: 0,
       totalParsed: txnsToInsert.length,
       duplicatesSkipped: duplicatesCount,
       message: `All ${txnsToInsert.length} transactions already exist in your activity ledger (0 duplicates imported).`,
-      transactions: [],
-    })
+      transactions: [] as unknown[],
+      netBalanceImpact: 0,
+    }
   }
 
   const formatted = uniqueToInsert.map((t) => ({
-    userId: auth.sub,
-    occurredAt: t.date ? new Date(t.date) : new Date(),
+    userId,
+    occurredAt: t.date ? toOccurredAt(t.date.slice(0, 10)) : new Date(),
     type: t.type || "expense",
     amount: Math.abs(Number(t.amount || 0)),
     category: t.category || "Other",
@@ -211,16 +71,138 @@ export async function POST(req: Request) {
     else netDelta += t.amount
   }
 
-  await User.findByIdAndUpdate(auth.sub, {
+  await User.findByIdAndUpdate(userId, {
     $inc: { cashBalance: netDelta },
   })
 
-  return NextResponse.json({
+  return {
     success: true,
     count: inserted.length,
     totalParsed: txnsToInsert.length,
     duplicatesSkipped: duplicatesCount,
     netBalanceImpact: netDelta,
     transactions: inserted,
-  })
+  }
+}
+
+async function resolveTransactionsFromRequest(req: Request): Promise<{
+  txns: ParsedStatementTxn[]
+  previewOnly: boolean
+  sourceKind?: string
+  extractedText?: string
+  filename?: string
+}> {
+  const contentType = req.headers.get("content-type") || ""
+
+  if (contentType.includes("multipart/form-data")) {
+    const form = await req.formData()
+    const previewOnly = String(form.get("preview") || "") === "true" || String(form.get("mode") || "") === "preview"
+    const file = form.get("file")
+
+    if (file && typeof file === "object" && "arrayBuffer" in file) {
+      const f = file as File
+      const buffer = Buffer.from(await f.arrayBuffer())
+      const { kind, text } = await extractStatementText({
+        buffer,
+        filename: f.name || "statement",
+        mime: f.type,
+      })
+      const txns = parseBankStatementText(text)
+      return {
+        txns,
+        previewOnly,
+        sourceKind: kind,
+        extractedText: text,
+        filename: f.name,
+      }
+    }
+
+    const pasted = String(form.get("csvContent") || form.get("text") || "")
+    return { txns: parseBankStatementText(pasted), previewOnly, sourceKind: "txt" }
+  }
+
+  const body = await req.json().catch(() => ({}))
+  const previewOnly = body?.preview === true || body?.mode === "preview"
+
+  if (Array.isArray(body?.transactions) && body.transactions.length > 0) {
+    const txns: ParsedStatementTxn[] = (body.transactions as ParsedStatementTxn[]).map((t) => ({
+      date: (t.date || new Date().toISOString()).slice(0, 10),
+      type: (t.type === "income" ? "income" : "expense") as "income" | "expense",
+      amount: Math.abs(Number(t.amount || 0)),
+      category: t.category || "Other",
+      merchant: t.merchant || "Statement Import",
+      note: t.note,
+    }))
+    return { txns, previewOnly }
+  }
+
+  if (typeof body?.fileBase64 === "string" && body.fileBase64.trim()) {
+    const buffer = Buffer.from(body.fileBase64.replace(/^data:[^;]+;base64,/, ""), "base64")
+    const { kind, text } = await extractStatementText({
+      buffer,
+      filename: String(body.filename || "statement.pdf"),
+      mime: body.mime,
+    })
+    return {
+      txns: parseBankStatementText(text),
+      previewOnly,
+      sourceKind: kind,
+      extractedText: text,
+      filename: body.filename,
+    }
+  }
+
+  if (typeof body?.csvContent === "string" && body.csvContent.trim()) {
+    return { txns: parseBankStatementText(body.csvContent), previewOnly, sourceKind: "txt" }
+  }
+
+  return { txns: [], previewOnly }
+}
+
+export async function POST(req: Request) {
+  const auth = getAuthPayload(req)
+  if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+
+  try {
+    const resolved = await resolveTransactionsFromRequest(req)
+
+    if (resolved.txns.length === 0) {
+      return NextResponse.json(
+        {
+          error: "No valid transactions found in statement data",
+          sourceKind: resolved.sourceKind,
+          filename: resolved.filename,
+        },
+        { status: 400 }
+      )
+    }
+
+    if (resolved.previewOnly) {
+      return NextResponse.json({
+        success: true,
+        preview: true,
+        count: resolved.txns.length,
+        sourceKind: resolved.sourceKind,
+        filename: resolved.filename,
+        transactions: resolved.txns.map((t) => ({
+          date: String(t.date).slice(0, 10),
+          type: t.type,
+          amount: t.amount,
+          category: t.category,
+          merchant: t.merchant,
+          note: t.note,
+        })),
+      })
+    }
+
+    const result = await insertParsedTransactions(auth.sub, resolved.txns)
+    return NextResponse.json({
+      ...result,
+      sourceKind: resolved.sourceKind,
+      filename: resolved.filename,
+    })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to process bank statement"
+    return NextResponse.json({ error: message }, { status: 500 })
+  }
 }

@@ -8,6 +8,10 @@ import {
   runDecisionEngine,
   runFinancialStressTest,
   simulateScenario,
+  type DecisionBundle,
+  type FinancialProfile,
+  type HealthScorecard,
+  type StressTestResult,
 } from "@/utils/decision-engine"
 import { monthKey } from "@/utils/time"
 
@@ -31,7 +35,7 @@ function parseRawTransactionText(text: string) {
   const amountMatch = clean.match(/(?:rs\.?|inr|₹|\$)\s*([\d,]+(?:\.\d+)?)|([\d,]+(?:\.\d+)?)\s*(?:rs|inr)/i)
   const amount = amountMatch ? parseFloat((amountMatch[1] || amountMatch[2]).replace(/,/g, "")) : 0
 
-  let type: "expense" | "income" = "expense"
+  let type: "income" | "expense" = "expense"
   if (/received|credited|salary|freelance|refund|deposit|got|income/i.test(clean)) {
     type = "income"
   }
@@ -64,6 +68,66 @@ function parseRawTransactionText(text: string) {
   }
 }
 
+function buildRichLocalInsight(opts: {
+  health: HealthScorecard
+  engineResult: DecisionBundle
+  stress: StressTestResult
+  profile: FinancialProfile
+}): string {
+  const { health, engineResult, stress, profile } = opts
+
+  const drivers = health.drivers
+    .map((d) => `• **${d.label}** — **${d.score}/100**: ${d.detail}`)
+    .join("\n")
+
+  const strengths = health.drivers
+    .filter((d) => d.score >= 60)
+    .map((d) => `• ${d.label} looks relatively solid at **${d.score}/100**`)
+
+  const fixes = health.drivers
+    .filter((d) => d.score < 60)
+    .map((d) => `• Fix **${d.label}** (${d.score}/100): ${d.detail}`)
+
+  const moves = engineResult.todaysMoves
+    .slice(0, 3)
+    .map((m, i) => `${i + 1}. **${m.title}** — ${m.why}\n   Impact: ${m.impact}`)
+    .join("\n")
+
+  const shocks = stress.scenarios
+    .slice(0, 4)
+    .map((s) => `• **${s.name}**: ${s.passed ? "Pass" : "Fail"} — ${s.impact}`)
+    .join("\n")
+
+  return `### Insight on your money right now
+
+Your overall **Financial Health Score is ${health.score}/100 (${health.label})**.
+Primary drag: **${health.topMover}**.
+
+### Snapshot
+• Income: **${fmtMoney(profile.monthlyIncome)}** / month
+• Expenses: **${fmtMoney(profile.monthlyExpenses)}** / month
+• Cash: **${fmtMoney(profile.cashBalance)}**
+• High-interest debt: **${fmtMoney(profile.highInterestDebt)}**
+
+### Score drivers
+${drivers}
+
+### 🟢 Strengths
+${strengths.length ? strengths.join("\n") : "• No strong drivers yet — focus on emergency buffer and debt first."}
+
+### 🔴 Areas to Fix
+${fixes.length ? fixes.join("\n") : "• No major weak drivers detected."}
+
+### Resilience check
+• Resilience score: **${stress.score}/100 (${stress.label})**
+${shocks}
+
+### ⚡ Recommended Action
+${moves || `• **${engineResult.todaysMoves[0]?.title || "Review cash buffer"}** — ${engineResult.todaysMoves[0]?.why || "Build a 3-month emergency fund before investing."}`}
+
+Ask a follow-up like *"Can I afford a ₹40,000 purchase?"* or *"What if I cut spending by ₹5,000?"* for a scenario simulation.`
+}
+
 export async function POST(req: Request) {
   const auth = getAuthPayload(req)
   if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -80,15 +144,55 @@ export async function POST(req: Request) {
   const health = buildHealthScorecard(profile)
   const stress = runFinancialStressTest(profile)
 
-  const apiKey = process.env.OPENROUTER_API_KEY
-  const configuredModel = process.env.OPENROUTER_MODEL || "openrouter/auto"
+  const openaiKey = process.env.OPENAI_API_KEY?.trim()
+  const openrouterKey = process.env.OPENROUTER_API_KEY?.trim()
+  const useOpenAI = Boolean(openaiKey)
+  const apiKey = useOpenAI ? openaiKey : openrouterKey
+  const configuredModel = useOpenAI
+    ? process.env.OPENAI_MODEL || "gpt-4o-mini"
+    : process.env.OPENROUTER_MODEL || "openrouter/auto"
+  const chatCompletionsUrl = useOpenAI
+    ? "https://api.openai.com/v1/chat/completions"
+    : "https://openrouter.ai/api/v1/chat/completions"
+  const providerMode = useOpenAI ? "openai_api" : "openrouter_api"
 
-  // System instructions with embedded FinSight Knowledge Base
+  function authHeaders(): Record<string, string> {
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    }
+    if (!useOpenAI) {
+      headers["HTTP-Referer"] = "http://localhost:3000"
+      headers["X-Title"] = "FinSight"
+    }
+    return headers
+  }
+
+  const snapshot = {
+    healthScore: health.score,
+    healthLabel: health.label,
+    topMover: health.topMover,
+    drivers: health.drivers.map((d) => ({ label: d.label, score: d.score, detail: d.detail })),
+    income: fmtMoney(profile.monthlyIncome),
+    expenses: fmtMoney(profile.monthlyExpenses),
+    cash: fmtMoney(profile.cashBalance),
+    debt: fmtMoney(profile.highInterestDebt),
+    resilience: { score: stress.score, label: stress.label },
+    todaysMoves: engineResult.todaysMoves.slice(0, 3).map((m) => ({
+      title: m.title,
+      why: m.why,
+      impact: m.impact,
+    })),
+  }
+
   const systemPrompt = `You are FinSight AI Copilot — an elite personal private wealth advisor.
-YOUR GOAL: Synthesize deterministic tool results and answer questions using FinSight's decision engine logic and rules.
+YOUR GOAL: Synthesize deterministic tool/engine results into a clear, useful answer. Never invent numbers.
 
 SYSTEM KNOWLEDGE BASE & DECISION RULES:
 ${JSON.stringify(FINSIGHT_KNOWLEDGE_BASE, null, 2)}
+
+LIVE USER SNAPSHOT (deterministic — treat as ground truth):
+${JSON.stringify(snapshot, null, 2)}
 
 STRICT FORMATTING & STYLE RULES:
 1. NEVER output raw internal variable names (e.g. cutExpenseInr, extraEmiInr, extraInvestInr).
@@ -97,55 +201,30 @@ STRICT FORMATTING & STYLE RULES:
    - Use '### Header' for sections.
    - Use '🟢 Strengths', '🔴 Areas to Fix', and '⚡ Recommended Action' subheaders.
    - Use bold text for key numbers and bullet points for readability.
-4. When explaining health scores, detail EACH driver (Cash Liquidity, Debt Burden, Budget Control, Credit Utilization) and explain the exact rupees/points drag.
-5. Be direct, authoritative, and concise.`
+4. When explaining health scores, detail EACH driver and the exact rupees/points drag.
+5. Be direct, authoritative, and thorough (not a 3-bullet stub). Aim for a useful briefing.`
 
-  // Offline / Fallback Mode (If API Key is missing or rate limited)
+  const richLocal = buildRichLocalInsight({ health, engineResult, stress, profile })
+
   if (!apiKey) {
-    const textLower = message.toLowerCase()
-
-    if (textLower.includes("parse") || textLower.includes("debited") || textLower.includes("credited") || textLower.includes("receipt") || textLower.includes("rs") || textLower.includes("₹")) {
-      const parsed = parseRawTransactionText(message)
-      return NextResponse.json({
-        reply: `### Transaction Analysis\n\n• **Type**: ${parsed.type.toUpperCase()}\n• **Amount**: ${fmtMoney(parsed.amount)}\n• **Merchant**: ${parsed.merchant || parsed.category}\n• **Category**: ${parsed.category}`,
-        toolUsed: "parse_transaction_input",
-        parsedTransaction: parsed,
-        mode: "offline_rules",
-      })
-    }
-
-    if (textLower.includes("afford") || textLower.includes("buy") || textLower.includes("purchase") || textLower.includes("laptop") || textLower.includes("cost") || textLower.includes("what if")) {
-      const numMatch = message.match(/[\d,]+/g)
-      const testAmount = numMatch ? parseFloat(numMatch.join("").replace(/,/g, "")) : 25000
-
-      const sim = simulateScenario(profile, { extraEmiInr: testAmount })
-      const deltaText = sim.delta >= 0 ? `+${sim.delta} pts` : `${sim.delta} pts`
-
-      return NextResponse.json({
-        reply: `### Purchase Impact Simulation\n\nSimulating a **${fmtMoney(testAmount)}** expense impact:\n\n• **Health Score Impact**: Moves from **${sim.baselineScore} ➔ ${sim.projectedScore}** (${deltaText}).\n• **Emergency Runway**: Depletes liquid cash buffer.\n\n⚡ **Recommendation**: ${sim.notes?.[0] || "Review cash reserves before completing purchase."}`,
-        toolUsed: "simulate_what_if_scenario",
-        simulation: sim,
-        mode: "offline_rules",
-      })
-    }
-
-    // Rich Health Score Explanation
-    const driversList = health.drivers
-      .map((d) => `• **${d.label}** (${d.score}/100): ${d.detail}`)
-      .join("\n")
-
     return NextResponse.json({
-      reply: `### Financial Health Scorecard: ${health.score}/100 (${health.label})\n\nHere is what is driving your financial score right now:\n\n${driversList}\n\n🔴 **Primary Drag**: ${health.topMover}\n\n⚡ **Recommended Top Move**: "${engineResult.todaysMoves[0]?.title}" — ${engineResult.todaysMoves[0]?.why}`,
+      reply: richLocal,
       toolUsed: "get_health_scorecard",
       health,
       mode: "offline_rules",
     })
   }
 
-  // Model Candidates Queue
-  const candidateModels = Array.from(
-    new Set([configuredModel, "openrouter/auto", "meta-llama/llama-3.3-70b-instruct:free", "google/gemini-2.0-flash-exp:free"])
-  )
+  const candidateModels = useOpenAI
+    ? Array.from(new Set([configuredModel, "gpt-4o-mini", "gpt-4o"]))
+    : Array.from(
+        new Set([
+          configuredModel,
+          "openrouter/auto",
+          "meta-llama/llama-3.3-70b-instruct:free",
+          "google/gemini-2.0-flash-exp:free",
+        ])
+      )
 
   const toolsDef = [
     {
@@ -193,19 +272,47 @@ STRICT FORMATTING & STYLE RULES:
     },
   ]
 
+  async function synthesizeFromToolData(
+    model: string,
+    toolName: string,
+    toolResultData: unknown
+  ): Promise<string | null> {
+    // Avoid fragile OpenAI tool-roundtrip protocol; ask for a normal completion with grounded data.
+    const res = await fetch(chatCompletionsUrl, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({
+        model,
+        temperature: 0.4,
+        messages: [
+          { role: "system", content: systemPrompt },
+          {
+            role: "user",
+            content: `${message}
+
+I already ran deterministic tool "${toolName}" for you. Use ONLY this data (plus the live snapshot) and write a thorough FinSight-style briefing.
+
+TOOL RESULT:
+${JSON.stringify(toolResultData, null, 2)}`,
+          },
+        ],
+      }),
+    })
+
+    if (!res.ok) return null
+    const data = await res.json().catch(() => null)
+    const content = data?.choices?.[0]?.message?.content
+    return typeof content === "string" && content.trim() ? content : null
+  }
+
   for (const currentModel of candidateModels) {
     try {
-      // TURN 1: Initial call to OpenRouter
-      const initialRes = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      const initialRes = await fetch(chatCompletionsUrl, {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "HTTP-Referer": "http://localhost:3000",
-          "X-Title": "FinSight",
-          "Content-Type": "application/json",
-        },
+        headers: authHeaders(),
         body: JSON.stringify({
           model: currentModel,
+          temperature: 0.4,
           messages: [
             { role: "system", content: systemPrompt },
             { role: "user", content: message },
@@ -219,7 +326,6 @@ STRICT FORMATTING & STYLE RULES:
       const initialData = await initialRes.json()
       const assistantMsg = initialData?.choices?.[0]?.message
 
-      // Handle Tool Call Execution
       if (assistantMsg?.tool_calls && assistantMsg.tool_calls.length > 0) {
         const toolCall: ToolCall = assistantMsg.tool_calls[0]
         const funcName = toolCall.function.name
@@ -256,53 +362,28 @@ STRICT FORMATTING & STYLE RULES:
           const rawText = String(args.rawText || message)
           parsedTxnResult = parseRawTransactionText(rawText)
           toolResultData = parsedTxnResult
+        } else {
+          toolResultData = snapshot
         }
 
-        // TURN 2: Send Tool Results back to OpenRouter for final natural synthesis!
-        const followUpRes = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${apiKey}`,
-            "HTTP-Referer": "http://localhost:3000",
-            "X-Title": "FinSight",
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            model: currentModel,
-            messages: [
-              { role: "system", content: systemPrompt },
-              { role: "user", content: message },
-              assistantMsg,
-              {
-                role: "tool",
-                tool_call_id: toolCall.id,
-                content: JSON.stringify(toolResultData),
-              },
-            ],
-          }),
-        })
-
-        if (followUpRes.ok) {
-          const followUpData = await followUpRes.json()
-          const finalContent = followUpData?.choices?.[0]?.message?.content
-
-          if (finalContent) {
-            return NextResponse.json({
-              reply: finalContent,
-              toolUsed: funcName,
-              parsedTransaction: parsedTxnResult,
-              modelUsed: currentModel,
-              mode: "openrouter_api_synthesis",
-            })
-          }
+        const synthesized = await synthesizeFromToolData(currentModel, funcName, toolResultData)
+        if (synthesized) {
+          return NextResponse.json({
+            reply: synthesized,
+            toolUsed: funcName,
+            parsedTransaction: parsedTxnResult,
+            modelUsed: currentModel,
+            mode: `${providerMode}_synthesis`,
+          })
         }
 
-        // Fallback formatting if turn 2 fails
+        // Rich local briefing instead of the old 3-bullet stub
         return NextResponse.json({
-          reply: `### Financial Analysis\n\n• **Health Score**: **${health.score}/100** (${health.label})\n• **Primary Drag**: ${health.topMover}\n• **Recommended Action**: "${engineResult.todaysMoves[0]?.title}"`,
+          reply: richLocal,
           toolUsed: funcName,
           parsedTransaction: parsedTxnResult,
-          mode: "openrouter_api",
+          modelUsed: currentModel,
+          mode: `${providerMode}_local_synthesis`,
         })
       }
 
@@ -310,7 +391,7 @@ STRICT FORMATTING & STYLE RULES:
         return NextResponse.json({
           reply: assistantMsg.content,
           modelUsed: currentModel,
-          mode: "openrouter_api",
+          mode: providerMode,
         })
       }
     } catch {
@@ -318,9 +399,8 @@ STRICT FORMATTING & STYLE RULES:
     }
   }
 
-  // Final fallback
   return NextResponse.json({
-    reply: `### Financial Position Overview\n\n• **Health Score**: **${health.score}/100** (${health.label})\n• **Top Driver**: ${health.topMover}\n• **Recommended Move**: "${engineResult.todaysMoves[0]?.title}"`,
+    reply: richLocal,
     toolUsed: "get_health_scorecard",
     health,
     mode: "offline_rules",

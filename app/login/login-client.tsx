@@ -52,7 +52,6 @@ export function LoginClient() {
   async function onDemo() {
     setDemoLoading(true)
     try {
-      await fetch("/api/demo/seed", { method: "POST", credentials: "include" })
       const res = await fetch("/api/demo/login", { method: "POST", credentials: "include" })
       if (!res.ok) throw new Error("Demo login failed")
       toast.success("Logged in as demo user")

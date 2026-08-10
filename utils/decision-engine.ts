@@ -842,50 +842,6 @@ export function starterFinancialProfile(
   }
 }
 
-/** Rich demo profile — only for the seeded demo account. */
-export function demoFinancialProfile(month: string): FinancialProfile {
-  return {
-    month,
-    currency: "INR",
-    monthlyIncome: 75000,
-    monthlyExpenses: 48000,
-    totalBudget: 50000,
-    // Cash above 6-mo EF so interest-arbitrage + "don't invest yet" stories both fire
-    cashBalance: 420000,
-    investments: 358500,
-    creditLimit: 300000,
-    creditBalance: 105000,
-    highInterestDebt: 120000,
-    savingsYieldPct: 6.5,
-    debtInterestPct: 9,
-    liquidYieldPct: 6.8,
-    equityIllustrativePct: 12,
-    emergencyMonthsTarget: 6,
-    goals: [
-      {
-        title: "Emergency Fund",
-        targetAmount: 288000,
-        currentAmount: 288000,
-        status: "active",
-      },
-      {
-        title: "Vacation",
-        targetAmount: 80000,
-        currentAmount: 22000,
-        deadline: new Date(Date.now() + 1000 * 60 * 60 * 24 * 300).toISOString(),
-        status: "active",
-      },
-    ],
-    spendByCategory: {
-      "Food & Dining": 12500,
-      Shopping: 9200,
-      "Utilities & Rent": 15000,
-      "Entertainment & Hobbies": 6800,
-      Transport: 4500,
-    },
-  }
-}
-
 export type StressScenario = {
   id: string
   name: string

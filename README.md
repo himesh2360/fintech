@@ -107,9 +107,20 @@ docker compose up --build
 
 Then open `http://localhost:3000`.
 
+### x402 Micropayments Track (Algorand)
+
+FinSight ships an **Entry Management Framework** Agent Treasury for autonomous agents (100% judging map in **[X402.md](./X402.md)**):
+
+- Live orchestrator: `POST /api/v1/agent/execute` (`@x402/next` + GoPlausible) → HTTP 402 unpaid
+- Atomic micro-APIs: `/api/v1/x402/services/{search,llm,verify}` + spend policy guard
+- Live settle helper: `POST /api/v1/agent/live-pay` / `npm run x402:live` (needs `AVM_PRIVATE_KEY`)
+- Demo walkthrough: `POST /api/v1/agent/demo` — UI always proves live 402 first
+- Discovery: `GET /api/x402/discovery`
+
 ### Notes
 
 - Auth is **JWT in an HttpOnly cookie** (middleware guards protected routes).
-- Decision support is **deterministic and rule-based** (amounts, ranking, invest-vs-debt) — **no LLM / OpenAI**.
+- Decision support is **deterministic and rule-based** (amounts, ranking, invest-vs-debt). Optional OpenAI/OpenRouter powers the AI Copilot when keys are set.
 - Hardcoded demo money data applies **only** to the seeded demo account; real signups start at zero.
-- This repo ships **local-first**: no external paid APIs required for the core demo.
+- Agent x402 routes do **not** require JWT — agents pay per call in USDC.
+- This repo ships **local-first** for the core dashboard; x402 live settle needs facilitator + funded Algorand USDC.

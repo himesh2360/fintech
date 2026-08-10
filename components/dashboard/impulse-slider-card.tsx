@@ -8,15 +8,15 @@ import { Card } from "@/components/ui/card"
 import { TradeoffModal } from "@/components/dashboard/tradeoff-modal"
 
 export function ImpulseSliderCard({
-  monthlyExpenses = 48000,
-  cashBalance = 420000,
-  baselineScore = 78,
+  monthlyExpenses = 0,
+  cashBalance = 0,
+  baselineScore = 0,
 }: {
   monthlyExpenses?: number
   cashBalance?: number
   baselineScore?: number
 }) {
-  const [amount, setAmount] = React.useState(45000)
+  const [amount, setAmount] = React.useState(5000)
   const [modalOpen, setModalOpen] = React.useState(false)
 
   // Real-time dynamic calculation

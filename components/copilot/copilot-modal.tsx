@@ -83,7 +83,7 @@ export function CopilotModal() {
     {
       id: "init",
       sender: "copilot",
-      text: "### Welcome to FinSight AI Copilot\n\nI analyze your decisions using real-time financial math:\n• Ask **'Can I afford a ₹35,000 purchase?'**\n• Request **Health Score & Resilience** drivers\n• Paste **bank SMS or receipt text** to auto-log transactions.",
+      text: "### Welcome to FinSight AI Copilot\n\nI analyze your decisions using your live ledger:\n• Ask **'Can I afford this purchase?'** with an amount\n• Request **Health Score & Resilience** drivers\n• Paste **bank SMS or receipt text** to auto-log transactions.",
     },
   ])
 
@@ -211,22 +211,22 @@ export function CopilotModal() {
           {/* Quick Prompts Bar */}
           <div className="flex flex-wrap gap-1.5 bg-muted/30 px-4 py-2.5 border-b border-border/50">
             <button
-              onClick={() => handleSend("Can I afford a ₹35,000 purchase this month?")}
+              onClick={() => handleSend("Can I afford a purchase this month? Use my surplus and emergency fund.")}
               className="rounded-xl bg-background px-3 py-1.5 text-[11px] font-medium text-muted-foreground border border-border/70 shadow-xs hover:text-foreground hover:border-primary/40 transition-all"
             >
-              💡 Can I afford ₹35k?
+              Can I afford a purchase?
             </button>
             <button
               onClick={() => handleSend("Explain my financial health score drivers")}
               className="rounded-xl bg-background px-3 py-1.5 text-[11px] font-medium text-muted-foreground border border-border/70 shadow-xs hover:text-foreground hover:border-primary/40 transition-all"
             >
-              📊 Explain Health Score
+              Explain Health Score
             </button>
             <button
-              onClick={() => handleSend("Debited Rs 1450 at Swiggy via UPI on 10-Aug")}
+              onClick={() => handleSend("How should I use my current surplus based on my live ledger?")}
               className="rounded-xl bg-background px-3 py-1.5 text-[11px] font-medium text-muted-foreground border border-border/70 shadow-xs hover:text-foreground hover:border-primary/40 transition-all"
             >
-              📄 Parse Bank SMS
+              Surplus advice
             </button>
           </div>
 
