@@ -34,11 +34,13 @@ export function TradeoffModal({
   onOpenChange,
   presetTitle = "Laptop Purchase",
   presetAmount = 45000,
+  onApplied,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   presetTitle?: string
   presetAmount?: number
+  onApplied?: () => void
 }) {
   const [title, setTitle] = React.useState(presetTitle)
   const [amount, setAmount] = React.useState(presetAmount)
@@ -73,25 +75,33 @@ export function TradeoffModal({
     }
   }, [open, presetTitle, presetAmount, runAnalysis])
 
-  const handleLogDecision = async (future: Future) => {
+  const handleApplyFuture = async (future: Future) => {
+    if (!data) return
     setSaving(true)
     try {
-      const res = await fetch("/api/decisions/memory", {
+      const res = await fetch("/api/decisions/apply-future", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
-          title: `${future.title}: ${title}`,
-          amount,
-          decisionType: future.key === "CLEAR_DEBT" ? "debt_payoff" : "purchase",
+          futureKey: future.key,
+          title: data.itemTitle || title,
+          amount: data.amount || amount,
           predictedScoreDelta: future.scoreDelta,
         }),
       })
-      if (res.ok) {
-        toast.success(`Decision logged to FinSight Memory! Prediction tracking active.`)
-        onOpenChange(false)
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        toast.error(json.error || "Could not apply this future")
+        return
       }
+      const summary = Array.isArray(json.actions) ? json.actions.join(" · ") : future.title
+      toast.success(`Future applied: ${summary}`)
+      onOpenChange(false)
+      onApplied?.()
+      window.dispatchEvent(new CustomEvent("finsight:refresh"))
     } catch {
-      toast.error("Failed to save decision")
+      toast.error("Failed to apply decision future")
     } finally {
       setSaving(false)
     }
@@ -200,11 +210,11 @@ export function TradeoffModal({
                       <Button
                         size="sm"
                         disabled={saving}
-                        onClick={() => handleLogDecision(f)}
+                        onClick={() => handleApplyFuture(f)}
                         variant={isRec ? "default" : "outline"}
                         className="w-full mt-3 h-8 text-xs gap-1 rounded-xl"
                       >
-                        <span>Select Future</span>
+                        <span>{saving ? "Applying…" : "Apply Future"}</span>
                         <ArrowRightIcon className="size-3" />
                       </Button>
                     </Card>

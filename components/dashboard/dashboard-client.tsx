@@ -101,6 +101,14 @@ export function DashboardClient() {
     void refresh()
   }, [refresh])
 
+  React.useEffect(() => {
+    const onRefresh = () => {
+      void refresh()
+    }
+    window.addEventListener("finsight:refresh", onRefresh)
+    return () => window.removeEventListener("finsight:refresh", onRefresh)
+  }, [refresh])
+
   if (loading || !summary || !insights || !decisions) {
     return (
       <div className="space-y-6">
@@ -206,7 +214,7 @@ export function DashboardClient() {
           </MotionPanel>
 
           <MotionPanel delay={0.02}>
-            <DecisionPromptBar />
+            <DecisionPromptBar onApplied={refresh} />
           </MotionPanel>
 
           <MotionPanel delay={0.03}>
@@ -214,6 +222,7 @@ export function DashboardClient() {
               monthlyExpenses={summary?.kpis?.monthlyExpenses ?? 0}
               cashBalance={summary?.assets?.cashBalance ?? 0}
               baselineScore={decisions?.health?.score ?? 0}
+              onApplied={refresh}
             />
           </MotionPanel>
 

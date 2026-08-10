@@ -11,10 +11,12 @@ export function ImpulseSliderCard({
   monthlyExpenses = 0,
   cashBalance = 0,
   baselineScore = 0,
+  onApplied,
 }: {
   monthlyExpenses?: number
   cashBalance?: number
   baselineScore?: number
+  onApplied?: () => void
 }) {
   const [amount, setAmount] = React.useState(5000)
   const [modalOpen, setModalOpen] = React.useState(false)
@@ -127,6 +129,7 @@ export function ImpulseSliderCard({
         onOpenChange={setModalOpen}
         presetTitle={`₹${amount.toLocaleString("en-IN")} Purchase`}
         presetAmount={amount}
+        onApplied={onApplied}
       />
     </>
   )

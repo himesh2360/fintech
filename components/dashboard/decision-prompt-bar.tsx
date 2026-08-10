@@ -23,7 +23,7 @@ const PRESETS: Preset[] = [
   { id: "bike", label: "Buy Vehicle", title: "Buy a Vehicle", incomeFraction: 1.5, icon: <CarIcon className="size-3.5" /> },
 ]
 
-export function DecisionPromptBar() {
+export function DecisionPromptBar({ onApplied }: { onApplied?: () => void }) {
   const [modalOpen, setModalOpen] = React.useState(false)
   const [activeTitle, setActiveTitle] = React.useState("Custom Purchase")
   const [activeAmount, setActiveAmount] = React.useState(0)
@@ -99,6 +99,7 @@ export function DecisionPromptBar() {
         onOpenChange={setModalOpen}
         presetTitle={activeTitle}
         presetAmount={activeAmount}
+        onApplied={onApplied}
       />
     </>
   )
